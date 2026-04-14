@@ -1,0 +1,146 @@
+
+
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+import netCDF4 as nc4
+from pyproj import Transformer
+import datetime
+
+def reproject_polygon(polygon_array,inputCRS,outputCRS,x_column=0,y_column=1,run_test = True):
+
+    transformer = Transformer.from_crs('EPSG:' + str(inputCRS), 'EPSG:' + str(outputCRS))
+
+    # There seems to be a serious problem with pyproj
+    # The x's and y's are mixed up for these transformations
+    #       For 4326->3413, you put in (y,x) and get out (x,y)
+    #       Foe 3413->4326, you put in (x,y) and get out (y,x)
+    # Safest to run check here to ensure things are outputting as expected with future iterations of pyproj
+
+    if inputCRS == 4326 and outputCRS == 3413:
+        x2, y2 = transformer.transform(polygon_array[:,y_column], polygon_array[:,x_column])
+        x2 = np.array(x2)
+        y2 = np.array(y2)
+    elif inputCRS == 3413 and outputCRS == 4326:
+        y2, x2 = transformer.transform(polygon_array[:, x_column], polygon_array[:, y_column])
+        x2 = np.array(x2)
+        y2 = np.array(y2)
+    elif str(inputCRS)[:3] == '326' and outputCRS == 3413:
+        x2, y2 = transformer.transform(polygon_array[:,y_column], polygon_array[:,x_column])
+        x2 = np.array(x2)
+        y2 = np.array(y2)
+        run_test = False
+    else:
+        raise ValueError('Reprojection with this epsg is not safe - no test for validity has been implemented')
+
+    output_polygon=np.copy(polygon_array)
+    output_polygon[:,x_column] = x2
+    output_polygon[:,y_column] = y2
+    return output_polygon
+
+def reproject_locations(locations):
+
+    points = []
+    for location in locations:
+        points.append(locations[location])
+    points = np.array(points)
+
+    points = reproject_polygon(points, 4326, 3413)
+    return(points)
+
+def YMD_to_DecYr(year,month,day,hour=0,minute=0,second=0):
+    date = datetime.datetime(year,month,day,hour,minute,second)
+    start = datetime.date(date.year, 1, 1).toordinal()
+    year_length = datetime.date(date.year+1, 1, 1).toordinal() - start
+    decimal_fraction = float(date.toordinal() - start) / year_length
+    dec_yr = year+decimal_fraction
+    return(dec_yr)
+
+def read_Chl_timeseries(project_folder, locations, points):
+
+    first_file = True
+
+    location_names = list(locations.keys())
+
+    all_model_timeseries = {}
+    all_obs_timeseries = {}
+
+    for year in range(2025, 2026):
+        for month in range(8, 9):
+            print(' - Working on ' + str(year) + '/' + str(month))
+
+            chl_file = os.path.join(project_folder, 'Data', '15km Interpolated', 'Chlorophyll_Modeled',
+                               'Chl_Modeled_' + str(year) + '{:02d}'.format(month) + '.nc')
+            ds = nc4.Dataset(chl_file)
+            X = ds.variables['X'][:,:]
+            Y = ds.variables['Y'][:,:]
+            Chl_Model = ds.variables['Chl_Modeled'][:,:,:]
+            ds.close()
+
+            chl_file = os.path.join(project_folder, 'Data', '15km Interpolated', 'Chlorophyll',
+                                    'Chlorophyll_' + str(year) + '{:02d}'.format(month) + '.nc')
+            ds = nc4.Dataset(chl_file)
+            Chl_Obs = ds.variables['Chl'][:, :, :]
+            ds.close()
+
+            days = np.arange(1,np.shape(Chl_Model)[0]+1).tolist()
+            dec_yrs = [YMD_to_DecYr(year,month,day) for day in days]
+
+            for ll in range(np.shape(points)[0]):
+                x = points[ll,0]
+                y = points[ll,1]
+                row = np.argmin(np.abs(Y[:,0]-y))
+                col = np.argmin(np.abs(X[0,:]-x))
+                # print(row,col)
+                month_timeseries = np.column_stack([dec_yrs,Chl_Model[:,row,col]])
+                obs_timeseries = np.column_stack([dec_yrs,Chl_Obs[:,row,col]])
+
+                if first_file:
+                    all_model_timeseries[location_names[ll]] = month_timeseries
+                    all_obs_timeseries[location_names[ll]] = obs_timeseries
+                else:
+                    all_model_timeseries[location_names[ll]] = np.vstack([all_model_timeseries[location_names[ll]],
+                                                                    month_timeseries])
+                    all_obs_timeseries[location_names[ll]] = np.vstack([all_obs_timeseries[location_names[ll]],
+                                                                          obs_timeseries])
+
+            if first_file:
+                first_file=False
+
+    return(all_model_timeseries, all_obs_timeseries)
+
+def save_timeseries_to_nc(project_folder, locations, model_timeseries, obs_timeseries):
+
+    ds = nc4.Dataset(os.path.join(project_folder,'Data','Model Timeseries',
+                                  'Chl Timeseries at Sample Locations.nc'),'w')
+
+    ds.createDimension('time', np.shape(model_timeseries[list(model_timeseries.keys())[0]])[0])
+
+    dvar = ds.createVariable('time', 'f4', ('time',))
+    dvar[:] = model_timeseries[list(model_timeseries.keys())[0]][:,0]
+
+    for location in list(model_timeseries.keys()):
+        grp = ds.createGroup(location)
+        chl_var = grp.createVariable('Chl_Modeled', 'f4', ('time',))
+        chl_var[:] = model_timeseries[location][:,1]
+        chl_var = grp.createVariable('Chl_Obs', 'f4', ('time',))
+        chl_var[:] = obs_timeseries[location][:, 1]
+
+    ds.close()
+
+project_folder = '/Users/mike/Documents/Research/Projects/Greenland Biology'
+
+resolution = 4
+
+locations = {'Disko Bay':(-55.579, 68.747),
+            'Melville Bay':(-60.955,75.465),
+            'Sermilik Fjord':(-38.086, 65.239)}
+
+points = reproject_locations(locations)
+
+model_timeseries, obs_timeseries = read_Chl_timeseries(project_folder, locations, points)
+
+save_timeseries_to_nc(project_folder, locations, model_timeseries, obs_timeseries)
+
+
+
