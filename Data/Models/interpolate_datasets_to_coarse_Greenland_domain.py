@@ -7,6 +7,7 @@ from scipy.interpolate import griddata
 from scipy.interpolate import LinearNDInterpolator
 from scipy.spatial import Delaunay
 from pyproj import Transformer
+import pickle
 
 def reproject_polygon(polygon_array,inputCRS,outputCRS,x_column=0,y_column=1,run_test = True):
 
@@ -249,15 +250,39 @@ def read_month_velocity_data_to_grid(data_folder, year, month, n_days, X, Y):
 
     return(U, V)
 
-def read_month_MUR41_SST_data_to_grid(data_folder, year, month, n_days, X, Y):
+def compute_MUR41_SST_triangulation(data_folder, year, month, day, X, Y):
+
+    file_path = os.path.join(data_folder,'Global','SST','MUR',str(year),
+                             str(year)+'{:02d}'.format(month)+'{:02d}'.format(day)+'090000-JPL-L4_GHRSST-SSTfnd-MUR-GLOB-v02.0-fv04.1.nc')
+    ds = nc4.Dataset(file_path)
+    lon = np.array(ds.variables['lon'][:])
+    lat = np.array(ds.variables['lat'][:])
+    ds.close()
+
+    lon_indices = np.logical_and(lon>-100, lon<20)
+    lat_indices = np.logical_and(lat>50, lat<85)
+
+    lon = lon[lon_indices]
+    lat = lat[lat_indices]
+
+    print('    - Reprojecting the coordinates to the grid')
+    Lon, Lat = np.meshgrid(lon, lat)
+    points = np.column_stack([Lon.ravel(), Lat.ravel()])
+
+    print('    - Computing the Delaunay triangulation of the points')
+    tri = Delaunay(points)
+
+    return(tri)
+
+def read_month_MUR41_SST_data_to_grid(data_folder, year, month, n_days, X, Y, tri):
 
     SST = np.zeros((n_days, np.shape(X)[0], np.shape(Y)[1]))
 
-    first_file = True
+    # first_file = True
 
     for day in range(1,n_days+1):
         print('    - Reading in day '+str(day))
-        file_path = os.path.join(data_folder,#'Global','SST',
+        file_path = os.path.join(data_folder,'Global','SST','MUR',str(year),
                                  str(year)+'{:02d}'.format(month)+'{:02d}'.format(day)+'090000-JPL-L4_GHRSST-SSTfnd-MUR-GLOB-v02.0-fv04.1.nc')
         ds = nc4.Dataset(file_path)
         lon = ds.variables['lon'][:]
@@ -273,19 +298,19 @@ def read_month_MUR41_SST_data_to_grid(data_folder, year, month, n_days, X, Y):
         sst = sst[lat_indices,:]
         sst = sst[:, lon_indices]
 
-        lon = lon[lon_indices]
-        lat = lat[lat_indices]
+        # lon = lon[lon_indices]
+        # lat = lat[lat_indices]
 
-        if first_file:
-            print('    - Reprojecting the coordinates to the grid')
-            Lon, Lat = np.meshgrid(lon, lat)
-            points = np.column_stack([Lon.ravel(), Lat.ravel()])
-            points = reproject_polygon(points, inputCRS=4326, outputCRS=3413)
-            sst[sst < -100] = np.nan
-
-            print('    - Computing the Delaunay triangulation of the points')
-            tri = Delaunay(points)
-            first_file = False
+        # if first_file:
+        #     print('    - Reprojecting the coordinates to the grid')
+        #     Lon, Lat = np.meshgrid(lon, lat)
+        #     points = np.column_stack([Lon.ravel(), Lat.ravel()])
+        #     points = reproject_polygon(points, inputCRS=4326, outputCRS=3413)
+        #     sst[sst < -100] = np.nan
+        #
+        #     print('    - Computing the Delaunay triangulation of the points')
+        #     tri = Delaunay(points)
+        #     first_file = False
 
         print('    - Interpolating the SST to the grid')
         interp = LinearNDInterpolator(tri, sst.ravel())
@@ -596,7 +621,7 @@ def write_data_to_nc(project_folder, year, month, n_days, X, Y, Depth, subset, d
 bedmachine_folder = '/Users/mike/Documents/Research/Data Repository'
 
 data_folder = '/Volumes/CoOL/Data_Repository'
-# data_folder = '/Users/mike/Desktop'
+data_folder = '/Users/mike/Documents/Research/Data Repository'
 
 project_folder = '/Users/mike/Documents/Research/Projects/Greenland Biology'
 
@@ -614,13 +639,27 @@ else:
     X, Y, Depth = read_domain_from_nc(project_folder, resolution)
 
 
-make_sea_ice = True
-make_velocity = True
+make_SST = True
+make_sea_ice = False
+make_velocity = False
 make_Chl = False
 
 # C = plt.pcolormesh(X,Y,Bed)
 # plt.colorbar(C)
 # plt.show()
+
+if make_SST:
+    mur_tri_file = os.path.join(project_folder, 'Data', '15km Interpolated', 'MUR41_SST_triangulation.pkl')
+    if os.path.isfile(mur_tri_file):
+        print(' - Loading the MUR41 SST triangulation from file')
+        with open(mur_tri_file, 'rb') as f:
+            mur_41_tri = pickle.load(f)
+    else:
+        mur_41_tri = compute_MUR41_SST_triangulation(data_folder, 2010, 1, 1, X, Y)
+        # now pickle the tri object so we don't have to compute it every time
+        with open(mur_tri_file, 'wb') as f:
+            pickle.dump(mur_41_tri, f)
+
 
 for year in range(2010,2021):
     for month in range(1,13):
@@ -675,13 +714,16 @@ for year in range(2010,2021):
         #############################################################################################
         # Temperature
 
-        # print('    - Interpolating the SST data')
-        # SST = read_month_MUR41_SST_data_to_grid(data_folder, year, month, n_days, X, Y)
-        # write_data_to_nc(project_folder, year, month, n_days, X, Y, Depth, 'SST', [SST], ['SST'])
-        #
-        # C = plt.pcolormesh(X, Y, SST[0,:,:], cmap='turbo')
-        # plt.colorbar(C)
-        # plt.show()
+        file_exists = check_file_existence(project_folder, year, month, 'Sea Surface Temperature')
+        if make_velocity and not file_exists:
+            print('    - Interpolating the sea surface temperature data')
+            # try:
+            SST = read_month_MUR41_SST_data_to_grid(data_folder, year, month, n_days, X, Y, mur_41_tri)
+            write_data_to_nc(project_folder, year, month, n_days, X, Y, Depth, 'SST', [SST], ['SST'])
+
+            C = plt.pcolormesh(X, Y, SST[0,:,:], cmap='turbo')
+            plt.colorbar(C)
+            plt.show()
 
         #############################################################################################
         # Salinity
