@@ -58,8 +58,7 @@ def create_domain(resolution):
     return(X,Y)
 
 def read_bedmachine_to_grid(data_folder, X, Y):
-    bm_file = '/Users/mike/Documents/Research/Data Repository/Greenland/Bathymetry/BedMachine/BedMachineGreenland-v5.nc'
-    # bm_file = os.path.join(data_folder,'Greenland','Bathymetry','BedMachine','BedMachineGreenland-v5.nc')
+    bm_file = os.path.join(data_folder,'Greenland','Bathymetry','BedMachine','BedMachineGreenland-v6.nc')
     ds = nc4.Dataset(bm_file)
     bm_x = ds.variables['x'][:]
     bm_y = ds.variables['y'][:]
@@ -618,12 +617,14 @@ def write_data_to_nc(project_folder, year, month, n_days, X, Y, Depth, subset, d
     ds.close()
 
 
-bedmachine_folder = '/Users/mike/Documents/Research/Data Repository'
+home_folder = os.path.expanduser('~')
+
+bedmachine_folder = os.path.join(home_folder, 'Documents', 'Research', 'Data Repository')
 
 data_folder = '/Volumes/CoOL/Data_Repository'
-data_folder = '/Users/mike/Documents/Research/Data Repository'
+#data_folder = os.path.join(home_folder, 'Documents', 'Research', 'Data Repository')
 
-project_folder = '/Users/mike/Documents/Research/Projects/Greenland Biology'
+project_folder = os.path.join(home_folder, 'Documents', 'Research', 'Projects', 'Greenland Chl Imputation')
 
 resolution = 15
 
@@ -632,16 +633,16 @@ X, Y = create_domain(resolution)
 if 'Greenland_domain_'+str(resolution)+'km.nc' not in os.listdir(os.path.join(project_folder,'Data',str(resolution)+'km Interpolated')):
     X, Y = create_domain(resolution)
     print(' - Reading in the Bedmachine Grid to Domain')
-    X, Y, Bed = read_bedmachine_to_grid(data_folder, X, Y)
+    X, Y, Bed = read_bedmachine_to_grid(bedmachine_folder, X, Y)
     Depth = Bed*-1
     write_domain_to_nc(project_folder, resolution, X, Y, Depth)
 else:
     X, Y, Depth = read_domain_from_nc(project_folder, resolution)
 
 
-make_SST = True
-make_sea_ice = False
-make_velocity = False
+make_SST = False
+make_sea_ice = True
+make_velocity = True
 make_Chl = False
 
 # C = plt.pcolormesh(X,Y,Bed)
@@ -661,7 +662,7 @@ if make_SST:
             pickle.dump(mur_41_tri, f)
 
 
-for year in range(2010,2021):
+for year in range(2000,2021):
     for month in range(1,13):
         print(' - Working on '+str(year)+'/'+str(month))
 
@@ -715,7 +716,7 @@ for year in range(2010,2021):
         # Temperature
 
         file_exists = check_file_existence(project_folder, year, month, 'Sea Surface Temperature')
-        if make_velocity and not file_exists:
+        if make_SST and not file_exists:
             print('    - Interpolating the sea surface temperature data')
             # try:
             SST = read_month_MUR41_SST_data_to_grid(data_folder, year, month, n_days, X, Y, mur_41_tri)
