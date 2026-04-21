@@ -6,8 +6,13 @@ import shutil
 repo_folder = '/Volumes/CoOL/Data_Repository/Global/Wind/ERA5'
 tmp_folder = '/Users/mikewoods/Desktop/Tmp/'
 
+subset = 1
+
 start_year = 2000
-end_year = 2026
+end_year = 2024
+
+# start_year = 2015
+# end_year = 2023
 
 client = cdsapi.Client()
 
@@ -56,21 +61,21 @@ for year in range(start_year, end_year + 1):
             }
 
             
-            client.retrieve(dataset, request, f"{tmp_folder}wind.zip")#.download()
+            client.retrieve(dataset, request, f"{tmp_folder}wind_{year}{month:02d}.zip")#.download()
 
             # now, unzip the file
-            with zipfile.ZipFile(f"{tmp_folder}wind.zip", 'r') as zip_ref:
-                zip_ref.extractall(f"{tmp_folder}wind/")
+            with zipfile.ZipFile(f"{tmp_folder}wind_{year}{month:02d}.zip", 'r') as zip_ref:
+                zip_ref.extractall(f"{tmp_folder}wind_{year}{month:02d}/")
 
             # then, move the files to the repo folder
-            for file_name in os.listdir(f"{tmp_folder}wind/"):
+            for file_name in os.listdir(f"{tmp_folder}wind_{year}{month:02d}/"):
                 if file_name.endswith('.nc') and file_name.startswith('10m_u_component'):
                     dst_file_name = 'u_10m_wind_'+str(year)+f"{month:02d}"+'.nc'
-                    shutil.copyfile(os.path.join(f"{tmp_folder}wind/", file_name), os.path.join(repo_folder, str(year), dst_file_name))
+                    shutil.copyfile(os.path.join(f"{tmp_folder}wind_{year}{month:02d}/", file_name), os.path.join(repo_folder, str(year), dst_file_name))
                 elif file_name.endswith('.nc') and file_name.startswith('10m_v_component'):
                     dst_file_name = 'v_10m_wind_'+str(year)+f"{month:02d}"+'.nc'
-                    shutil.copyfile(os.path.join(f"{tmp_folder}wind/", file_name), os.path.join(repo_folder, str(year), dst_file_name))
+                    shutil.copyfile(os.path.join(f"{tmp_folder}wind_{year}{month:02d}/", file_name), os.path.join(repo_folder, str(year), dst_file_name))
 
             # finally, deleter the zip file and the unzipped folder
-            os.remove(f"{tmp_folder}wind.zip")
-            shutil.rmtree(f"{tmp_folder}wind/")
+            os.remove(f"{tmp_folder}wind_{year}{month:02d}.zip")
+            shutil.rmtree(f"{tmp_folder}wind_{year}{month:02d}/")
