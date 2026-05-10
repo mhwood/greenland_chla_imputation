@@ -56,7 +56,16 @@ def YMD_to_DecYr(year,month,day,hour=0,minute=0,second=0):
     dec_yr = year+decimal_fraction
     return(dec_yr)
 
-def read_Chl_timeseries(project_folder, locations, points):
+def generate_year_months(start_year, start_month, end_year, end_month):
+    year_months = []
+    for year in range(start_year, end_year + 1):
+        for month in range(1, 13):
+            if (year == start_year and month < start_month) or (year == end_year and month > end_month):
+                continue
+            year_months.append((year, month))
+    return year_months
+
+def read_Chl_timeseries(project_folder, locations, points, year_months, infill_with_obs = True):
 
     first_file = True
 
@@ -65,47 +74,57 @@ def read_Chl_timeseries(project_folder, locations, points):
     all_model_timeseries = {}
     all_obs_timeseries = {}
 
-    for year in range(2025, 2026):
-        for month in range(8, 9):
-            print(' - Working on ' + str(year) + '/' + str(month))
+    for year_month in year_months:
+        year = year_month[0]
+        month = year_month[1]
+        print(' - Working on ' + str(year) + '/' + str(month))
 
-            chl_file = os.path.join(project_folder, 'Data', '15km Interpolated', 'Chlorophyll_Modeled',
-                               'Chl_Modeled_' + str(year) + '{:02d}'.format(month) + '.nc')
-            ds = nc4.Dataset(chl_file)
-            X = ds.variables['X'][:,:]
-            Y = ds.variables['Y'][:,:]
-            Chl_Model = ds.variables['Chl_Modeled'][:,:,:]
-            ds.close()
+        chl_file = os.path.join(project_folder, 'Data', str(resolution)+'km Model',model_version,str(year),
+                           'Chl_Modeled_' + model_version +'_' + str(year) + '{:02d}'.format(month) + '.nc')
+        ds = nc4.Dataset(chl_file)
+        X = ds.variables['X'][:,:]
+        Y = ds.variables['Y'][:,:]
+        Chl_Model = ds.variables['Chl'][:,:,:]
+        ds.close()
 
-            chl_file = os.path.join(project_folder, 'Data', '15km Interpolated', 'Chlorophyll',
-                                    'Chlorophyll_' + str(year) + '{:02d}'.format(month) + '.nc')
-            ds = nc4.Dataset(chl_file)
-            Chl_Obs = ds.variables['Chl'][:, :, :]
-            ds.close()
+        chl_file = os.path.join(project_folder, 'Data', str(resolution)+'km Interpolated',
+                                 'Chlorophyll', str(year), 'Chlorophyll_' + str(year) +'{:02d}'.format(month) +'.nc')
+        ds = nc4.Dataset(chl_file)
+        Chl_Obs = ds.variables['Chl'][:, :, :]
+        ds.close()
 
-            days = np.arange(1,np.shape(Chl_Model)[0]+1).tolist()
-            dec_yrs = [YMD_to_DecYr(year,month,day) for day in days]
+        if infill_with_obs:
+            model_nan_mask = np.isnan(Chl_Model)
+            obs_nan_mask = np.isnan(Chl_Obs)
 
-            for ll in range(np.shape(points)[0]):
-                x = points[ll,0]
-                y = points[ll,1]
-                row = np.argmin(np.abs(Y[:,0]-y))
-                col = np.argmin(np.abs(X[0,:]-x))
-                # print(row,col)
-                month_timeseries = np.column_stack([dec_yrs,Chl_Model[:,row,col]])
-                obs_timeseries = np.column_stack([dec_yrs,Chl_Obs[:,row,col]])
+            # if the model is NaN but the obs is not, fill in with the obs
+            infill_mask = model_nan_mask & ~obs_nan_mask
 
-                if first_file:
-                    all_model_timeseries[location_names[ll]] = month_timeseries
-                    all_obs_timeseries[location_names[ll]] = obs_timeseries
-                else:
-                    all_model_timeseries[location_names[ll]] = np.vstack([all_model_timeseries[location_names[ll]],
-                                                                    month_timeseries])
-                    all_obs_timeseries[location_names[ll]] = np.vstack([all_obs_timeseries[location_names[ll]],
-                                                                          obs_timeseries])
+            Chl_Model[infill_mask] = Chl_Obs[infill_mask]
+
+        days = np.arange(1,np.shape(Chl_Model)[0]+1).tolist()
+        dec_yrs = [YMD_to_DecYr(year,month,day) for day in days]
+
+        for ll in range(np.shape(points)[0]):
+            x = points[ll,0]
+            y = points[ll,1]
+            row = np.argmin(np.abs(Y[:,0]-y))
+            col = np.argmin(np.abs(X[0,:]-x))
+            # print(row,col)
+            month_timeseries = np.column_stack([dec_yrs,Chl_Model[:,row,col]])
+            obs_timeseries = np.column_stack([dec_yrs,Chl_Obs[:,row,col]])
 
             if first_file:
-                first_file=False
+                all_model_timeseries[location_names[ll]] = month_timeseries
+                all_obs_timeseries[location_names[ll]] = obs_timeseries
+            else:
+                all_model_timeseries[location_names[ll]] = np.vstack([all_model_timeseries[location_names[ll]],
+                                                                month_timeseries])
+                all_obs_timeseries[location_names[ll]] = np.vstack([all_obs_timeseries[location_names[ll]],
+                                                                      obs_timeseries])
+
+        if first_file:
+            first_file=False
 
     return(all_model_timeseries, all_obs_timeseries)
 
@@ -128,17 +147,27 @@ def save_timeseries_to_nc(project_folder, locations, model_timeseries, obs_times
 
     ds.close()
 
-project_folder = '/Users/mike/Documents/Research/Projects/Greenland Biology'
+project_folder = '/Users/mike/Documents/Research/Projects/Greenland Chl Imputation'
 
-resolution = 4
+model_version = 'XGB1'
+resolution = 15
+
+start_year = 2003
+start_month = 1
+
+end_year = 2020
+end_month = 12
 
 locations = {'Disko Bay':(-55.579, 68.747),
             'Melville Bay':(-60.955,75.465),
-            'Sermilik Fjord':(-38.086, 65.239)}
+            'Sermilik Fjord':(-38.086, 65.239),
+             'Labrador Sea':(-52.09,60.83)}
 
 points = reproject_locations(locations)
 
-model_timeseries, obs_timeseries = read_Chl_timeseries(project_folder, locations, points)
+year_months = generate_year_months(start_year, start_month, end_year, end_month)
+
+model_timeseries, obs_timeseries = read_Chl_timeseries(project_folder, locations, points, year_months)
 
 save_timeseries_to_nc(project_folder, locations, model_timeseries, obs_timeseries)
 
