@@ -124,24 +124,38 @@ def read_month_SIF_data_to_grid(data_folder, year, month, n_days, X, Y):
 
     first_file = True
 
-    sat_code = 'N07'
-    if year == 1987:
-        if month >= 8:
-            sat_code = 'F08'
-    if year > 1987:
-        sat_code = 'F08'
-    if year >= 1992:
-        sat_code = 'F11'
-    if year == 1995:
-        if month >= 10:
-            sat_code = 'F13'
-    if year > 1995:
-        sat_code = 'F13'
-    if year >= 2008:
-        sat_code = 'F17'
+    sat_code = 'n07'
+    
 
     for day in range(1,n_days+1):
         print('    - Reading in day '+str(day))
+
+        if year == 1987:
+            if month >= 7:
+                if day >= 10:
+                    sat_code = 'F08'
+        if year > 1987:
+            if month >= 8:
+                if day >= 10:
+                    sat_code = 'F08'
+        if year >1988:
+            sat_code = 'F08'
+        if year >= 1991:
+            if month >= 12:
+                if day >= 3:
+                    sat_code = 'F11'
+        if year > 1991:
+            sat_code = 'F11'
+        if year == 1995:
+            if month >= 10:
+                sat_code = 'F13'
+        if year > 1995:
+            sat_code = 'F13'
+        if year > 1995:
+            sat_code = 'F13'
+        if year >= 2008:
+            sat_code = 'F17'
+
         file_path = os.path.join(data_folder,'Arctic','Sea_Ice','daily','v5',str(year),
                                  'sic_psn25_'+str(year)+'{:02d}'.format(month)+'{:02d}'.format(day)+'_'+sat_code+'_v05r00.nc')
         ds = nc4.Dataset(file_path)
@@ -305,6 +319,62 @@ def compute_MUR41_SST_triangulation(data_folder, year, month, day, X, Y):
 
     return(tri_dict)
 
+def compute_CCI_SST_triangulation(data_folder, year, month, day, X, Y):
+
+    file_path = os.path.join(data_folder,'Global','Sea Surface Temperature','CCI',str(year),
+                             str(year)+'{:02d}'.format(month)+'{:02d}'.format(day)+'120000-ESACCI-L4_GHRSST-SSTdepth-OSTIA-GLOB_CDR2.1-v02.0-fv01.0.nc')
+    ds = nc4.Dataset(file_path)
+    lon = np.array(ds.variables['lon'][:])
+    lat = np.array(ds.variables['lat'][:])
+    ds.close()
+
+    lon_indices = np.logical_and(lon>-100, lon<20)
+    lat_indices = np.logical_and(lat>50, lat<85)
+
+    lon = lon[lon_indices]
+    lat = lat[lat_indices]
+
+    print('    - Reprojecting the coordinates to the grid')
+    Lon, Lat = np.meshgrid(lon, lat)
+    points = np.column_stack([Lon.ravel(), Lat.ravel()])
+    reprojected_points = reproject_polygon(points, inputCRS=4326, outputCRS=3413)
+
+    print('New')
+
+    tri_dict = {}
+
+    processing_rows = 4
+    processing_cols = 4
+    for row in range(processing_rows):
+        for col in range(processing_cols):
+            print('        - Processing chunk in row '+str(row+1)+'/'+str(processing_rows)+' and col '+str(col+1)+'/'+str(processing_cols))
+            # subset X and Y to the current processing chunk
+            min_row = row * np.shape(X)[0] // processing_rows
+            max_row = (row + 1) * np.shape(X)[0] // processing_rows
+            min_col = col * np.shape(X)[1] // processing_cols
+            max_col = (col + 1) * np.shape(X)[1] // processing_cols
+            X_chunk = X[min_row:max_row, min_col:max_col]
+            Y_chunk = Y[min_row:max_row, min_col:max_col]
+
+            print('            - Reprojecting the subset of points to the grid coordinates')
+            subset = np.column_stack([X_chunk.ravel(), Y_chunk.ravel()])
+
+            buff = 10000
+            lon_subset_indices = np.logical_and(reprojected_points[:,0]>=np.min(subset[:,0])-buff, reprojected_points[:,0]<=np.max(subset[:,0])+buff)
+            lat_subset_indices = np.logical_and(reprojected_points[:,1]>=np.min(subset[:,1])-buff, reprojected_points[:,1]<=np.max(subset[:,1])+buff)
+            subset_indices = np.logical_and(lon_subset_indices, lat_subset_indices)
+            points_subset = reprojected_points[subset_indices,:]
+
+            print('            - Computing the Delaunay triangulation of the subset of points')
+            tri_subset = Delaunay(np.array(points_subset))
+
+            tri_dict[(row, col)] = {'tri':tri_subset, 'point_subset_indices': subset_indices}
+
+    # print('    - Computing the Delaunay triangulation of the points')
+    # tri = Delaunay(points)
+
+    return(tri_dict)
+
 def read_month_MUR41_SST_data_to_grid(data_folder, year, month, n_days, X, Y, tri):
 
     SST = np.zeros((n_days, np.shape(X)[0], np.shape(Y)[1]))
@@ -312,49 +382,57 @@ def read_month_MUR41_SST_data_to_grid(data_folder, year, month, n_days, X, Y, tr
     # first_file = True
 
     for day in range(1,n_days+1):
-        print('    - Reading in day '+str(day))
-        file_path = os.path.join(data_folder,'Global','Sea Surface Temperature','MUR',str(year),
-                                 str(year)+'{:02d}'.format(month)+'{:02d}'.format(day)+'090000-JPL-L4_GHRSST-SSTfnd-MUR-GLOB-v02.0-fv04.1.nc')
-        ds = nc4.Dataset(file_path)
-        lon = ds.variables['lon'][:]
-        lat = ds.variables['lat'][:]
-        sst = ds.variables['analysed_sst'][:,:,:]
-        ds.close()
+        process_file = True
+        # if year==2013 and month==9 and day in [2,3,4,5,6]: # these files aere corrupted
+        #     process_file = False
+        
+        if process_file:
+            print('    - Reading in day '+str(day))
+            file_path = os.path.join(data_folder,'Global','Sea Surface Temperature','MUR','v4.1',str(year),
+                                    str(year)+'{:02d}'.format(month)+'{:02d}'.format(day)+'090000-JPL-L4_GHRSST-SSTfnd-MUR-GLOB-v02.0-fv04.1.nc')
+            ds = nc4.Dataset(file_path)
+            lon = ds.variables['lon'][:]
+            lat = ds.variables['lat'][:]
+            sst = ds.variables['analysed_sst'][:,:,:]
+            ds.close()
 
-        sst = sst[0,:,:]
+            sst = sst[0,:,:]
 
-        lon_indices = np.logical_and(lon>-100, lon<20)
-        lat_indices = np.logical_and(lat>50, lat<85)
+            lon_indices = np.logical_and(lon>-100, lon<20)
+            lat_indices = np.logical_and(lat>50, lat<85)
 
-        sst = sst[lat_indices,:]
-        sst = sst[:, lon_indices]
+            sst = sst[lat_indices,:]
+            sst = sst[:, lon_indices]
 
-        interp_sst = np.zeros(np.shape(X))
+            interp_sst = np.zeros(np.shape(X))
 
-        processing_rows = 4
-        processing_cols = 4
-        for row in range(processing_rows):
-            for col in range(processing_cols):
-                print('        - Processing chunk in row '+str(row+1)+'/'+str(processing_rows)+' and col '+str(col+1)+'/'+str(processing_cols))
-                tri_subset = tri[(row, col)]['tri']
-                subset_indices = tri[(row, col)]['point_subset_indices']
-                sst_subset = sst.ravel()[subset_indices]
+            processing_rows = 4
+            processing_cols = 4
+            for row in range(processing_rows):
+                for col in range(processing_cols):
+                    print('        - Processing chunk in row '+str(row+1)+'/'+str(processing_rows)+' and col '+str(col+1)+'/'+str(processing_cols))
+                    tri_subset = tri[(row, col)]['tri']
+                    subset_indices = tri[(row, col)]['point_subset_indices']
+                    sst_subset = sst.ravel()[subset_indices]
 
-                interp = LinearNDInterpolator(tri_subset, sst_subset)
+                    interp = LinearNDInterpolator(tri_subset, sst_subset)
 
-                min_row = row * np.shape(X)[0] // processing_rows
-                max_row = (row + 1) * np.shape(X)[0] // processing_rows
-                min_col = col * np.shape(X)[1] // processing_cols
-                max_col = (col + 1) * np.shape(X)[1] // processing_cols
-                X_chunk = X[min_row:max_row, min_col:max_col]
-                Y_chunk = Y[min_row:max_row, min_col:max_col]
+                    min_row = row * np.shape(X)[0] // processing_rows
+                    max_row = (row + 1) * np.shape(X)[0] // processing_rows
+                    min_col = col * np.shape(X)[1] // processing_cols
+                    max_col = (col + 1) * np.shape(X)[1] // processing_cols
+                    X_chunk = X[min_row:max_row, min_col:max_col]
+                    Y_chunk = Y[min_row:max_row, min_col:max_col]
 
-                interp_sst_chunk = interp(X_chunk, Y_chunk)
-                interp_sst[min_row:max_row, min_col:max_col] = interp_sst_chunk
+                    interp_sst_chunk = interp(X_chunk, Y_chunk)
+                    interp_sst[min_row:max_row, min_col:max_col] = interp_sst_chunk
 
-        interp_sst[interp_sst<270] = np.nan
+            interp_sst[interp_sst<270] = np.nan
 
-        SST[day-1, :, :] = interp_sst
+            SST[day-1, :, :] = interp_sst
+        
+        else:
+            SST[day-1, :, :] = np.nan
 
     return(SST)
 
@@ -364,50 +442,114 @@ def read_month_MUR42_SST_data_to_grid(data_folder, year, month, n_days, X, Y):
     SIF = np.zeros((n_days, np.shape(X)[0], np.shape(Y)[1]))
 
     for day in range(1,n_days+1):
-        file_path = os.path.join(data_folder,'Global','SST',
-                                 str(year)+'{:02d}'.format(month)+'{:02d}'.format(day)+'090000-JPL-L4_GHRSST-SSTfnd-MUR25-GLOB-v02.0-fv04.2.nc')
-        ds = nc4.Dataset(file_path)
-        lon = ds.variables['lon'][:]
-        lat = ds.variables['lat'][:]
-        sst = ds.variables['analysed_sst'][:,:,:]
-        seaice_fraction = ds.variables['sea_ice_fraction'][:,:,:]
-        ds.close()
+        process_file = True
+        if year==2013 and month==9 and day==2:
+            process_file = False
+        
+        if process_file:
+            file_path = os.path.join(data_folder,'Global','SST',
+                                    str(year)+'{:02d}'.format(month)+'{:02d}'.format(day)+'090000-JPL-L4_GHRSST-SSTfnd-MUR25-GLOB-v02.0-fv04.2.nc')
+            ds = nc4.Dataset(file_path)
+            lon = ds.variables['lon'][:]
+            lat = ds.variables['lat'][:]
+            sst = ds.variables['analysed_sst'][:,:,:]
+            seaice_fraction = ds.variables['sea_ice_fraction'][:,:,:]
+            ds.close()
 
-        sst = sst[0,:,:]
-        sif = seaice_fraction[0,:,:]
+            sst = sst[0,:,:]
+            sif = seaice_fraction[0,:,:]
 
-        lon_indices = np.logical_and(lon>-100, lon<20)
-        lat_indices = np.logical_and(lat>50, lat<85)
+            lon_indices = np.logical_and(lon>-100, lon<20)
+            lat_indices = np.logical_and(lat>50, lat<85)
 
-        sst = sst[lat_indices,:]
-        sst = sst[:, lon_indices]
-        sif = sif[lat_indices, :]
-        sif = sif[:, lon_indices]
+            sst = sst[lat_indices,:]
+            sst = sst[:, lon_indices]
+            sif = sif[lat_indices, :]
+            sif = sif[:, lon_indices]
 
-        lon = lon[lon_indices]
-        lat = lat[lat_indices]
+            lon = lon[lon_indices]
+            lat = lat[lat_indices]
 
-        Lon, Lat = np.meshgrid(lon, lat)
-        points = np.column_stack([Lon.ravel(), Lat.ravel()])
-        points = reproject_polygon(points, inputCRS=4326, outputCRS=3413)
+            Lon, Lat = np.meshgrid(lon, lat)
+            points = np.column_stack([Lon.ravel(), Lat.ravel()])
+            points = reproject_polygon(points, inputCRS=4326, outputCRS=3413)
 
-        sst[sst < -100] = np.nan
-        sif[sif < -100] = np.nan
+            sst[sst < -100] = np.nan
+            sif[sif < -100] = np.nan
 
-        interp_sst = griddata(points, sst.ravel(), (X, Y))
-        interp_sif = griddata(points, sif.ravel(), (X, Y))
+            interp_sst = griddata(points, sst.ravel(), (X, Y))
+            interp_sif = griddata(points, sif.ravel(), (X, Y))
 
-        interp_sst[interp_sst<-100] = np.nan
-        interp_sif[interp_sif < -100] = np.nan
+            interp_sst[interp_sst<-100] = np.nan
+            interp_sif[interp_sif < -100] = np.nan
 
-        interp_sif[np.logical_and(~np.isnan(interp_sst), np.isnan(interp_sif))]=0
+            interp_sif[np.logical_and(~np.isnan(interp_sst), np.isnan(interp_sif))]=0
 
-        SST[day-1, :, :] = interp_sst
-        SIF[day - 1, :, :] = interp_sif
-
-
+            SST[day-1, :, :] = interp_sst
+            SIF[day - 1, :, :] = interp_sif
 
     return(SST, SIF)
+
+def read_month_CCI_SST_data_to_grid(data_folder, year, month, n_days, X, Y, tri):
+
+    SST = np.zeros((n_days, np.shape(X)[0], np.shape(Y)[1]))
+
+    # first_file = True
+
+    for day in range(1,n_days+1):
+        process_file = True
+        # if year==2013 and month==9 and day in [2,3,4,5,6]: # these files aere corrupted
+        #     process_file = False
+        
+        if process_file:
+            print('    - Reading in day '+str(day))
+            file_path = os.path.join(data_folder,'Global','Sea Surface Temperature','CCI',str(year),
+                                    str(year)+'{:02d}'.format(month)+'{:02d}'.format(day)+'120000-ESACCI-L4_GHRSST-SSTdepth-OSTIA-GLOB_CDR2.1-v02.0-fv01.0.nc')
+            ds = nc4.Dataset(file_path)
+            lon = ds.variables['lon'][:]
+            lat = ds.variables['lat'][:]
+            sst = ds.variables['analysed_sst'][:,:,:]
+            ds.close()
+
+            sst = sst[0,:,:]
+
+            lon_indices = np.logical_and(lon>-100, lon<20)
+            lat_indices = np.logical_and(lat>50, lat<85)
+
+            sst = sst[lat_indices,:]
+            sst = sst[:, lon_indices]
+
+            interp_sst = np.zeros(np.shape(X))
+
+            processing_rows = 4
+            processing_cols = 4
+            for row in range(processing_rows):
+                for col in range(processing_cols):
+                    print('        - Processing chunk in row '+str(row+1)+'/'+str(processing_rows)+' and col '+str(col+1)+'/'+str(processing_cols))
+                    tri_subset = tri[(row, col)]['tri']
+                    subset_indices = tri[(row, col)]['point_subset_indices']
+                    sst_subset = sst.ravel()[subset_indices]
+
+                    interp = LinearNDInterpolator(tri_subset, sst_subset)
+
+                    min_row = row * np.shape(X)[0] // processing_rows
+                    max_row = (row + 1) * np.shape(X)[0] // processing_rows
+                    min_col = col * np.shape(X)[1] // processing_cols
+                    max_col = (col + 1) * np.shape(X)[1] // processing_cols
+                    X_chunk = X[min_row:max_row, min_col:max_col]
+                    Y_chunk = Y[min_row:max_row, min_col:max_col]
+
+                    interp_sst_chunk = interp(X_chunk, Y_chunk)
+                    interp_sst[min_row:max_row, min_col:max_col] = interp_sst_chunk
+
+            interp_sst[interp_sst<270] = np.nan
+
+            SST[day-1, :, :] = interp_sst
+        
+        else:
+            SST[day-1, :, :] = np.nan
+
+    return(SST)
 
 def read_month_SSS_data_to_grid(data_folder, year, month, n_days, X, Y):
 
@@ -445,43 +587,50 @@ def read_month_SSS_data_to_grid(data_folder, year, month, n_days, X, Y):
 
     return(SSS)
 
-def read_month_wind_velocity_data_to_grid(data_folder, year, month, n_days, X, Y):
+def read_month_ERA5_wind_velocity_data_to_grid(data_folder, year, month, n_days, X, Y):
 
     U = np.zeros((n_days, np.shape(X)[0], np.shape(Y)[1]))
     V = np.zeros((n_days, np.shape(X)[0], np.shape(Y)[1]))
 
+    file_path = os.path.join(data_folder,'Global','Wind','ERA5',str(year),
+                                'u_10m_wind_'+str(year)+'{:02d}'.format(month)+'.nc')
+    ds = nc4.Dataset(file_path)
+    lon = ds.variables['longitude'][:]
+    lat = ds.variables['latitude'][:]
+    u = ds.variables['u10'][:,:,:]
+    ds.close()
+
+    file_path = os.path.join(data_folder,'Global','Wind','ERA5',str(year),
+                                'v_10m_wind_'+str(year)+'{:02d}'.format(month)+'.nc')
+    ds = nc4.Dataset(file_path)
+    v = ds.variables['v10'][:,:,:]
+    ds.close()
+
+    lon_indices_r = np.logical_and(lon>260, lon<360)
+    lon_indics_l = np.logical_and(lon>=0, lon<20)
+    lon_indices = np.logical_or(lon_indices_r, lon_indics_l)
+    lat_indices = np.logical_and(lat>50, lat<85)
+
+    u = u[:,lat_indices,:]
+    u = u[:,:, lon_indices]
+    v = v[:,lat_indices, :]
+    v = v[:,:, lon_indices]
+
+    lon = lon[lon_indices]
+    lat = lat[lat_indices]
+
+    Lon, Lat = np.meshgrid(lon, lat)
+    points = np.column_stack([Lon.ravel(), Lat.ravel()])
+    points = reproject_polygon(points, inputCRS=4326, outputCRS=3413)
+
+    u[u < -100] = np.nan
+    v[v < -100] = np.nan
+
     for day in range(1,n_days+1):
-        file_path = os.path.join(data_folder,'Global','Surface Winds',
-                                 'CCMP_Wind_Analysis_'+str(year)+'{:02d}'.format(month)+'{:02d}'.format(day)+'_V03.1_L4.nc')
-        ds = nc4.Dataset(file_path)
-        lon = ds.variables['longitude'][:]
-        lat = ds.variables['latitude'][:]
-        u = ds.variables['uwnd'][:,:,:]
-        v = ds.variables['vwnd'][:,:,:]
-        ds.close()
+        print('        - Interpolating day '+str(day))
 
-        u = np.mean(u,axis=0)
-        v = np.mean(v,axis=0)
-
-        lon_indices = np.logical_and(lon>260, lon<360)
-        lat_indices = np.logical_and(lat>50, lat<85)
-
-        u = u[lat_indices,:]
-        u = u[:, lon_indices]
-        v = v[lat_indices, :]
-        v = v[:, lon_indices]
-
-        lon = lon[lon_indices]
-        lat = lat[lat_indices]
-
-        Lon, Lat = np.meshgrid(lon, lat)
-        points = np.column_stack([Lon.ravel(), Lat.ravel()])
-        points = reproject_polygon(points, inputCRS=4326, outputCRS=3413)
-
-        u[u < -100] = np.nan
-        v[v < -100] = np.nan
-        interp_u = griddata(points, u.ravel(), (X, Y))
-        interp_v = griddata(points, v.ravel(), (X, Y))
+        interp_u = griddata(points, u[day-1,:,:].ravel(), (X, Y))
+        interp_v = griddata(points, v[day-1,:,:].ravel(), (X, Y))
 
         interp_u[interp_u<-100] = np.nan
         interp_v[interp_v<-100] = np.nan
@@ -680,26 +829,40 @@ else:
 make_SST = True
 make_sea_ice = False
 make_velocity = False
+make_wind = False
 make_Chl = False
 
 # C = plt.pcolormesh(X,Y,Bed)
 # plt.colorbar(C)
 # plt.show()
 
-if make_SST:
-    mur_tri_file = os.path.join(project_folder, 'Data', '15km Interpolated', 'MUR41_SST_triangulation.pkl')
-    if os.path.isfile(mur_tri_file):
-        print(' - Loading the MUR41 SST triangulation from file')
-        with open(mur_tri_file, 'rb') as f:
-            mur_41_tri = pickle.load(f)
-    else:
-        mur_41_tri = compute_MUR41_SST_triangulation(data_folder, 2010, 1, 1, X, Y)
-        # now pickle the tri object so we don't have to compute it every time
-        with open(mur_tri_file, 'wb') as f:
-            pickle.dump(mur_41_tri, f)
 
+for year in range(1981,2003):
 
-for year in range(2010,2021):
+    if make_SST and year>=2003:
+        mur_tri_file = os.path.join(project_folder, 'Data', '15km Interpolated', 'MUR41_SST_triangulation.pkl')
+        if os.path.isfile(mur_tri_file):
+            print(' - Loading the MUR41 SST triangulation from file')
+            with open(mur_tri_file, 'rb') as f:
+                mur_41_tri = pickle.load(f)
+        else:
+            mur_41_tri = compute_MUR41_SST_triangulation(data_folder, 2010, 1, 1, X, Y)
+            # now pickle the tri object so we don't have to compute it every time
+            with open(mur_tri_file, 'wb') as f:
+                pickle.dump(mur_41_tri, f)
+    
+    if make_SST and year<2003:
+        cci_tri_file = os.path.join(project_folder, 'Data', '15km Interpolated', 'CCI_SST_triangulation.pkl')
+        if os.path.isfile(cci_tri_file):
+            print(' - Loading the CCI SST triangulation from file')
+            with open(cci_tri_file, 'rb') as f:
+                cci_tri = pickle.load(f)
+        else:
+            cci_tri = compute_CCI_SST_triangulation(data_folder, 1992, 1, 1, X, Y)
+            # now pickle the tri object so we don't have to compute it every time
+            with open(cci_tri_file, 'wb') as f:
+                pickle.dump(cci_tri, f)
+
     for month in range(1,13):
         print(' - Working on '+str(year)+'/'+str(month))
 
@@ -718,15 +881,15 @@ for year in range(2010,2021):
         file_exists = check_file_existence(project_folder, year, month, 'Sea_Ice')
         if make_sea_ice and not file_exists:
             print('    - Interpolating the sea ice data')
-            try:
-                SIF = read_month_SIF_data_to_grid(data_folder, year, month, n_days, X, Y)
-                write_data_to_nc(project_folder, year, month, n_days, X, Y, Depth,
+            # try:
+            SIF = read_month_SIF_data_to_grid(data_folder, year, month, n_days, X, Y)
+            write_data_to_nc(project_folder, year, month, n_days, X, Y, Depth,
                                  'Sea_Ice', [SIF], ['seaice_fraction'])
-            except KeyboardInterrupt:
-                print(' - Keyboard Interrupt detected, stopping code execution')
-                break
-            except:
-                print('        - Error in sea ice data for this month')
+            # except KeyboardInterrupt:
+            #     print(' - Keyboard Interrupt detected, stopping code execution')
+            #     break
+            # except:
+            #     print('        - Error in sea ice data for this month')
 
         #############################################################################################
         # Velocity
@@ -756,17 +919,21 @@ for year in range(2010,2021):
         if make_SST and not file_exists:
             print('    - Interpolating the sea surface temperature data')
             try:
-                SST = read_month_MUR41_SST_data_to_grid(data_folder, year, month, n_days, X, Y, mur_41_tri)
-                write_data_to_nc(project_folder, year, month, n_days, X, Y, Depth, 'SST', [SST], ['SST'])
-
-                # C = plt.pcolormesh(X, Y, SST[0,:,:], cmap='turbo')
-                # plt.colorbar(C)
-                # plt.show()
+                if year<2003:
+                    SST = read_month_CCI_SST_data_to_grid(data_folder, year, month, n_days, X, Y, cci_tri)
+                    write_data_to_nc(project_folder, year, month, n_days, X, Y, Depth, 'SST', [SST], ['SST'])
+    
+                    # C = plt.pcolormesh(X, Y, SST[0,:,:], cmap='turbo')
+                    # plt.colorbar(C)
+                    # plt.show()
+                else:
+                    SST = read_month_MUR41_SST_data_to_grid(data_folder, year, month, n_days, X, Y, mur_41_tri)
+                    write_data_to_nc(project_folder, year, month, n_days, X, Y, Depth, 'SST', [SST], ['SST'])
             except KeyboardInterrupt:
                 print(' - Keyboard Interrupt detected, stopping code execution')
                 break
             except:
-                print('        - Error in velocity data for this month')
+                print('        - Error in temperature data for this month')
 
         #############################################################################################
         # Salinity
@@ -782,6 +949,21 @@ for year in range(2010,2021):
         # U_wind, V_wind = read_month_wind_velocity_data_to_grid(data_folder, year, month, n_days, X, Y)
         # write_data_to_nc(project_folder, year, month, n_days, X, Y, Depth, 'Surface_Wind', [U_wind,V_wind], ['U_wind','V_wind'])
 
+        file_exists = check_file_existence(project_folder, year, month, 'Wind')
+        if make_wind and not file_exists:
+            print('    - Interpolating the wind velocity data')
+            try:
+                U_wind, V_wind = read_month_ERA5_wind_velocity_data_to_grid(data_folder, year, month, n_days, X, Y)
+                write_data_to_nc(project_folder, year, month, n_days, X, Y, Depth, 'Wind', [U_wind,V_wind], ['U_wind','V_wind'])
+
+                # C = plt.pcolormesh(X, Y, U_wind[0,:,:], cmap='turbo')
+                # plt.colorbar(C)
+                # plt.show()
+            except KeyboardInterrupt:
+                print(' - Keyboard Interrupt detected, stopping code execution')
+                break
+            except:
+                print('        - Error in wind data for this month')
 
         #############################################################################################
         # Chl Data

@@ -8,17 +8,17 @@ import datetime
 import shutil
 
 # define an output folder
-data_path = '/Volumes/CoOL/Data_Repository/Global/Sea Surface Temperature/MUR'
+data_path = '/Volumes/CoOL/Data_Repository/Global/Sea Surface Temperature/MUR/v4.1'
 
-local_dir = '/Users/mike/Desktop/Tmp'
+
 
 # define a collection e.g.:
 # MUR SST: MUR25-JPL-L4-GLOB-v04.2
 # SMAP SSS: SMAP_JPL_L3_SSS_CAP_MONTHLY_V5
 short_name = 'MUR-JPL-L4-GLOB-v4.1'
 
-start_year = 2003
-end_year = 2024
+start_year = 2002
+end_year = 2002
 
 for year in range(start_year, end_year + 1):
     if str(year) not in os.listdir(data_path):
@@ -26,6 +26,8 @@ for year in range(start_year, end_year + 1):
         os.mkdir(os.path.join(data_path, str(year)))
 
 for year in range(start_year, end_year + 1):
+
+    local_dir = data_path+'/'+str(year)
 
     for month in range(1, 13):
         print('   - Working on year {} and month {}...'.format(year, month))
@@ -64,12 +66,12 @@ for year in range(start_year, end_year + 1):
             # run the downloading script
             pdd.run(args)
 
-            # now move the downloaded files to the correct folder
-            for file in sorted(os.listdir(local_dir)):
-                if file.endswith('.nc') and file not in os.listdir(os.path.join(data_path, str(year))):
-                    print(f'        - Moving file {file} to folder for year {year}...')
-                    shutil.copyfile(os.path.join(local_dir, file), os.path.join(data_path, str(year), file))
-                    print(f'        - Removing file {file} from local directory...')
-                    os.remove(os.path.join(local_dir, file))
+            # # now move the downloaded files to the correct folder
+            # for file in sorted(os.listdir(local_dir)):
+            #     if file.endswith('.nc') and file not in os.listdir(os.path.join(data_path, str(year))):
+            #         print(f'        - Moving file {file} to folder for year {year}...')
+            #         shutil.copyfile(os.path.join(local_dir, file), os.path.join(data_path, str(year), file))
+            #         print(f'        - Removing file {file} from local directory...')
+            #         os.remove(os.path.join(local_dir, file))
 
 
