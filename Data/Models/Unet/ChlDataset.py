@@ -17,12 +17,14 @@ def generate_year_months(start_year, start_month, end_year, end_month):
 
 
 class ChlDataset(Dataset):
-    def __init__(self, project_folder, resolution, start_year, end_year,
+    def __init__(self, project_folder, resolution, model_version,
+                 start_year, end_year,
                  normalize_stats, device,
                  time_window=3, hide_prob=0.3, epsilon=1e-6,
                  fill_value=0.0, training=True, printing=True):
 
         self.project_folder = project_folder
+        self.model_version = model_version
         self.start_year = start_year
         self.end_year = end_year
         self.resolution = resolution
@@ -48,12 +50,20 @@ class ChlDataset(Dataset):
         self.read_netcdf_stack(self.project_folder, self.resolution, 'SST')
         self.read_netcdf_stack(self.project_folder, self.resolution, 'Sea_Ice')
         self.read_netcdf_stack(self.project_folder, self.resolution, 'Wind', vector=True)
-        self.read_netcdf_stack(self.project_folder, self.resolution, 'Velocity', vector=True)
+        if model_version == 'Unet1':
+            self.read_netcdf_stack(self.project_folder, self.resolution, 'Velocity', vector=True)
         self.read_netcdf_stack(self.project_folder, self.resolution, 'Chlorophyll')
         self.read_model_domain(self.project_folder, self.resolution)
         self.generate_DOY_fields()
 
+        if model_version=='Unet1':
+            self.var_names = ['Chl', 'SST', 'U_wind', 'V_wind', 'U', 'V', 'Lon', 'Lat', 'DOY_sin','DOY_cos']
+        if model_version=='Unet2':
+            self.var_names = ['Chl', 'SST', 'U_wind', 'V_wind', 'Lon', 'Lat', 'DOY_sin','DOY_cos']
+
     def read_netcdf_stack(self, project_folder, resolution, varname, vector=False):
+
+        days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
         if self.printing:
             print(f' - Reading {varname} data from netCDF files...')
@@ -63,25 +73,43 @@ class ChlDataset(Dataset):
             year = year_month[0]
             month = year_month[1]
 
-            file_path = os.path.join(project_folder, 'Data', str(resolution)+'km Interpolated',
-                                     varname, str(year), varname +'_' + str(year) +'{:02d}'.format(month) +'.nc')
-            ds = nc4.Dataset(file_path)
-            if vector:
-                if varname== 'Wind':
-                    u_grid = ds.variables['U_wind'][:,:,:]
-                    v_grid = ds.variables['V_wind'][:,:,:]
-                if varname== 'Velocity':
-                    u_grid = ds.variables['U'][:,:,:]
-                    v_grid = ds.variables['V'][:,:,:]
+            # there is no chl data between 1986/7 and 1997/8 so we just
+            # generate nans for these months
+            nan_chl = False
+            if varname == 'Chlorophyll':
+                if year==1986 and month>=7:
+                    nan_chl = True
+                if year>1986 and year<1997:
+                    nan_chl = True
+                if year==1997 and month<=8:
+                    nan_chl = True
+            if nan_chl:
+                print('    - No Chlorophyll data for', year, month, '- filling with NaNs')
+                n_days_month = days_in_month[month-1]
+                if year%4==0 and month==2:
+                    n_days_month = 29
+                var_grid= np.full((n_days_month, 184, 103),
+                                  np.nan, dtype=np.float32)
             else:
-                if varname=='Sea_Ice':
-                    readname = 'seaice_fraction'
-                elif varname=='Chlorophyll':
-                    readname = 'Chl'
+                file_path = os.path.join(project_folder, 'Data', str(resolution)+'km Interpolated',
+                                         varname, str(year), varname +'_' + str(year) +'{:02d}'.format(month) +'.nc')
+                ds = nc4.Dataset(file_path)
+                if vector:
+                    if varname== 'Wind':
+                        u_grid = ds.variables['U_wind'][:,:,:]
+                        v_grid = ds.variables['V_wind'][:,:,:]
+                    if varname== 'Velocity':
+                        u_grid = ds.variables['U'][:,:,:]
+                        v_grid = ds.variables['V'][:,:,:]
                 else:
-                    readname = varname
-                var_grid = ds.variables[readname][:,:,:]
-            ds.close()
+                    if varname=='Sea_Ice':
+                        readname = 'seaice_fraction'
+                    elif varname=='Chlorophyll':
+                        readname = 'Chl'
+                    else:
+                        readname = varname
+                    var_grid = ds.variables[readname][:,:,:]
+                ds.close()
 
             if first_file:
                 if vector:
@@ -268,12 +296,13 @@ class ChlDataset(Dataset):
             seaice_mask = seaice_mask * self.ocean_mask
 
             # predictor channels
-            for var_name in ['Chl', 'SST', 'U_wind', 'V_wind', 'U', 'V', 'Lon', 'Lat', 'DOY_sin','DOY_cos']:
+            for var_name in self.var_names:
                 input_arr = self.var_dict[var_name]
                 arr = input_arr[global_i, :, :]
 
                 arr = np.where(np.isfinite(arr), arr, np.nan)
-                arr = self.normalize(arr, var_name)
+                if var_name not in ['DOY_cos','DOY_sin']:
+                    arr = self.normalize(arr, var_name)
                 arr = np.nan_to_num(
                     arr,
                     nan=self.fill_value,

@@ -70,7 +70,6 @@ def read_bedmachine_to_grid(data_folder):
 
     return(bm_X, bm_Y, bed)
 
-
 def create_monthly_panels(project_folder,year,month,check_existing,bm_X, bm_Y, bed, model_version):
 
     days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
@@ -97,25 +96,43 @@ def create_monthly_panels(project_folder,year,month,check_existing,bm_X, bm_Y, b
     for day in range(1, days_in_month[month-1]+1):
         print(f' - Working on {year}/{month:02d}/{day:02d}')
         plt.style.use('dark_background')
-        fig = plt.figure(figsize=(6.5,9))
+        fig = plt.figure(figsize=(13,9))
 
-        gs2 = GridSpec(17, 14, left=0.05, right=0.95, top=0.95, bottom=0.05, hspace=0.05)
+        gs2 = GridSpec(17, 29, left=0.05, right=0.95, top=0.95, bottom=0.05, hspace=0.05)
 
         # map
-        ax1 = fig.add_subplot(gs2[:-2, :-1])
+        ax1 = fig.add_subplot(gs2[:-2, :14])
         # model_mask = ~np.isnan(Chl_model[day - 1, :, :])
         # model_mask = np.ma.masked_where(~model_mask, model_mask)
         # plt.pcolormesh(X, Y, model_mask, cmap='gray', zorder=1, vmin=0, vmax=1)
-        C = plt.pcolormesh(X, Y, Chl_model[day - 1, :, :], vmin=0, vmax=5, cmap='turbo', zorder=2)
-        # C = plt.pcolormesh(X, Y, Chl_obs[day - 1, :, :], vmin=0, vmax=5, cmap='turbo',zorder=3)
+        # C = plt.pcolormesh(X, Y, Chl_model[day - 1, :, :], vmin=0, vmax=5, cmap='turbo', zorder=2)
+        C = plt.pcolormesh(X, Y, Chl_obs[day - 1, :, :], vmin=0, vmax=5, cmap='turbo',zorder=3)
         land_mask = (bed == 0.0).astype(int)
         land_mask = np.ma.masked_where(land_mask==0, land_mask)
         plt.pcolormesh(bm_X, bm_Y, land_mask, cmap='gray', zorder=10, vmin=0, vmax=2)
         plt.contour(bm_X, bm_Y, bed, levels=[0.01], colors='k', zorder=11)
         ax1.set_xticks([])
         ax1.set_yticks([])
+        # cbar = plt.colorbar(C, fraction=0.026, pad=0.04)
+        # cbar.set_label('Chlorophyll-a Concentration', rotation=90)
+        ax1.set_title('Observations')
+
+        # map
+        ax1 = fig.add_subplot(gs2[:-2, 14:28])
+        # model_mask = ~np.isnan(Chl_model[day - 1, :, :])
+        # model_mask = np.ma.masked_where(~model_mask, model_mask)
+        # plt.pcolormesh(X, Y, model_mask, cmap='gray', zorder=1, vmin=0, vmax=1)
+        C = plt.pcolormesh(X, Y, Chl_model[day - 1, :, :], vmin=0, vmax=5, cmap='turbo', zorder=2)
+        # C = plt.pcolormesh(X, Y, Chl_obs[day - 1, :, :], vmin=0, vmax=5, cmap='turbo',zorder=3)
+        land_mask = (bed == 0.0).astype(int)
+        land_mask = np.ma.masked_where(land_mask == 0, land_mask)
+        plt.pcolormesh(bm_X, bm_Y, land_mask, cmap='gray', zorder=10, vmin=0, vmax=2)
+        plt.contour(bm_X, bm_Y, bed, levels=[0.01], colors='k', zorder=11)
+        ax1.set_xticks([])
+        ax1.set_yticks([])
         cbar = plt.colorbar(C, fraction=0.026, pad=0.04)
         cbar.set_label('Chlorophyll-a Concentration', rotation=90)
+        ax1.set_title('Model')
 
         # time
         ax3 = fig.add_subplot(gs2[-1, 1:-3])
@@ -130,7 +147,7 @@ def create_monthly_panels(project_folder,year,month,check_existing,bm_X, bm_Y, b
         ax3.set_xticklabels(['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'])
         ax3.set_yticks([])
 
-        output_file = os.path.join(project_folder, 'Figures', 'Maps','Chlorophyll Model',model_version, 'panels',
+        output_file = os.path.join(project_folder, 'Figures', 'Maps','Chlorophyll Model vs Obs',model_version, 'panels',
                                    f'Chlorophyll_Model_{year}_{month:02d}_{day:02d}.png')
         plt.savefig(output_file, dpi=300)
         plt.close(fig)
@@ -138,7 +155,7 @@ def create_monthly_panels(project_folder,year,month,check_existing,bm_X, bm_Y, b
 def compile_panels_to_movie(project_folder,year, model_version):
     pwd = os.getcwd()
 
-    panels_dir = os.path.join(project_folder, 'Figures', 'Maps','Chlorophyll Model',model_version, 'panels')
+    panels_dir = os.path.join(project_folder, 'Figures', 'Maps','Chlorophyll Model vs Obs',model_version, 'panels')
 
     # get a list of the file names
     all_file_names = []
@@ -148,7 +165,7 @@ def compile_panels_to_movie(project_folder,year, model_version):
     all_file_names = sorted(all_file_names)
 
     # make a temporary dir where we will link all available images and go there
-    panels_dir_tmp = os.path.join(project_folder, 'Figures', 'Maps','Chlorophyll Model',model_version, 'panels_tmp')
+    panels_dir_tmp = os.path.join(project_folder, 'Figures', 'Maps','Chlorophyll Model vs Obs',model_version, 'panels_tmp')
     os.mkdir(panels_dir_tmp)
     os.chdir(panels_dir_tmp)
 
@@ -156,7 +173,7 @@ def compile_panels_to_movie(project_folder,year, model_version):
     for ff in range(len(all_file_names)):
         os.system('ln -s ' + '../panels/'+all_file_names[ff]+' panel_'+'{:05d}'.format(ff)+'.png')
 
-    output_name = 'Chlorophyll_Model_'+str(year)+'.mp4'
+    output_name = 'Chlorophyll_Model_vs_Obs_'+str(year)+'.mp4'
 
     os.system("ffmpeg -r 5 -i panel_%05d.png -vcodec mpeg4 -b 3M -y " + output_name)
     os.rename(output_name, os.path.join('..', output_name))
@@ -180,7 +197,7 @@ year = 2019
 print(' - Reading in the bedmachine data')
 bm_X, bm_Y, bed = read_bedmachine_to_grid(bedmachine_folder)
 
-# for month in range(3,10):
+# for month in range(5,6):
 #     create_monthly_panels(project_folder, year, month, check_existing, bm_X, bm_Y, bed, model_version)
 
 print(' - Compiling panels into movie')

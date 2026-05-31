@@ -74,6 +74,8 @@ def read_Chl_timeseries(project_folder, locations, points, year_months, infill_w
     all_model_timeseries = {}
     all_obs_timeseries = {}
 
+    days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
     for year_month in year_months:
         year = year_month[0]
         month = year_month[1]
@@ -87,11 +89,27 @@ def read_Chl_timeseries(project_folder, locations, points, year_months, infill_w
         Chl_Model = ds.variables['Chl'][:,:,:]
         ds.close()
 
-        chl_file = os.path.join(project_folder, 'Data', str(resolution)+'km Interpolated',
-                                 'Chlorophyll', str(year), 'Chlorophyll_' + str(year) +'{:02d}'.format(month) +'.nc')
-        ds = nc4.Dataset(chl_file)
-        Chl_Obs = ds.variables['Chl'][:, :, :]
-        ds.close()
+        nan_chl = False
+        if year == 1986 and month >= 7:
+            nan_chl = True
+        if year > 1986 and year < 1997:
+            nan_chl = True
+        if year == 1997 and month <= 8:
+            nan_chl = True
+
+        if nan_chl:
+            print('    - No Chlorophyll data for', year, month, '- filling with NaNs')
+            n_days_month = days_in_month[month - 1]
+            if year % 4 == 0 and month == 2:
+                n_days_month = 29
+            Chl_Obs = np.full((n_days_month, 184, 103),
+                               np.nan, dtype=np.float32)
+        else:
+            chl_file = os.path.join(project_folder, 'Data', str(resolution)+'km Interpolated',
+                                     'Chlorophyll', str(year), 'Chlorophyll_' + str(year) +'{:02d}'.format(month) +'.nc')
+            ds = nc4.Dataset(chl_file)
+            Chl_Obs = ds.variables['Chl'][:, :, :]
+            ds.close()
 
         if infill_with_obs:
             model_nan_mask = np.isnan(Chl_Model)
@@ -128,9 +146,12 @@ def read_Chl_timeseries(project_folder, locations, points, year_months, infill_w
 
     return(all_model_timeseries, all_obs_timeseries)
 
-def save_timeseries_to_nc(project_folder, locations, model_timeseries, obs_timeseries):
+def save_timeseries_to_nc(project_folder, resolution, model_version, locations, model_timeseries, obs_timeseries):
 
-    ds = nc4.Dataset(os.path.join(project_folder,'Data','Model Timeseries',
+    if 'Model Timeseries' not in os.listdir(os.path.join(project_folder,'Data',str(resolution)+'km Model',model_version)):
+        os.mkdir(os.path.join(project_folder,'Data',str(resolution)+'km Model',model_version,'Model Timeseries'))
+
+    ds = nc4.Dataset(os.path.join(project_folder,'Data',str(resolution)+'km Model',model_version,'Model Timeseries',
                                   'Chl Timeseries at Sample Locations.nc'),'w')
 
     ds.createDimension('time', np.shape(model_timeseries[list(model_timeseries.keys())[0]])[0])
@@ -144,15 +165,17 @@ def save_timeseries_to_nc(project_folder, locations, model_timeseries, obs_times
         chl_var[:] = model_timeseries[location][:,1]
         chl_var = grp.createVariable('Chl_Obs', 'f4', ('time',))
         chl_var[:] = obs_timeseries[location][:, 1]
+        grp.longitude = locations[location][0]
+        grp.latitude = locations[location][1]
 
     ds.close()
 
 project_folder = '/Users/mike/Documents/Research/Projects/Greenland Chl Imputation'
 
-model_version = 'XGB1'
+model_version = 'Unet2'
 resolution = 15
 
-start_year = 2003
+start_year = 1982
 start_month = 1
 
 end_year = 2020
@@ -167,9 +190,9 @@ points = reproject_locations(locations)
 
 year_months = generate_year_months(start_year, start_month, end_year, end_month)
 
-model_timeseries, obs_timeseries = read_Chl_timeseries(project_folder, locations, points, year_months)
+model_timeseries, obs_timeseries = read_Chl_timeseries(project_folder, locations, points, year_months, infill_with_obs = False)
 
-save_timeseries_to_nc(project_folder, locations, model_timeseries, obs_timeseries)
+save_timeseries_to_nc(project_folder, resolution, model_version, locations, model_timeseries, obs_timeseries)
 
 
 

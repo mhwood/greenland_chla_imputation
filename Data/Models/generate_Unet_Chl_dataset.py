@@ -25,11 +25,14 @@ def load_model_checkpoint(project_folder, model_version, epoch, device):
                               f'{model_version}_checkpoint_epoch_{epoch}.pth')
 
     days = 7
-    channels_per_day = 10
+    if model_version == 'Unet1':
+        channels_per_day = 10
+    if model_version == 'Unet2':
+        channels_per_day = 8
     in_channels = days * channels_per_day + 1
     model = ChlUNet(in_channels=in_channels, out_channels=1, base=64).to(device)
 
-    checkpoint = torch.load(checkpoint_file, map_location='mps')
+    checkpoint = torch.load(checkpoint_file)#, map_location='mps')
 
     model.load_state_dict(checkpoint)
 
@@ -50,20 +53,28 @@ def read_model_grid(project_folder, resolution):
     return var_grids
 
 def read_normalization_stats(project_folder, resolution, model_version):
-    stats_file = os.path.join(project_folder, 'Data', str(resolution)+'km Model', model_version,
-                              model_version+'_normalization_stats.txt')
+    stats_file = os.path.join(project_folder, 'Data', str(resolution)+'km Interpolated',
+                              str(resolution)+'km_normalization_stats.txt')
 
     normalization_stats = {}
 
     with open(stats_file, 'r') as f:
         for line in f:
-            var_name, stats_str = line.strip().split(':')
-            mean_str, std_str = stats_str.split(',')
-            mean = float(mean_str.split('=')[1])
-            std = float(std_str.split('=')[1])
-            normalization_stats[var_name] = {'mean': mean, 'std': std}
+            parts = line.strip().split(':')
+            if len(parts) == 2:
+                field_name = parts[0].strip()
+                normalization_stats[field_name] = {}
+                mean_std = parts[1].strip().split(',')
+                if len(mean_std) == 2:
+                    mean = float(mean_std[0].strip().split('=')[1])
+                    std = float(mean_std[1].strip().split('=')[1])
+                    normalization_stats[field_name]['mean'] = mean
+                    normalization_stats[field_name]['std'] = std
+
+    normalization_stats['Chl'] = normalization_stats['Chlorophyll']
 
     return normalization_stats
+
 
 def run_file_check(project_folder, resolution, model_version, year_month, check_if_exists):
     year = year_month[0]
@@ -121,8 +132,8 @@ def write_Chl_dataset_to_nc(project_folder, model_version, year, month, var_grid
 
 project_folder = '/Users/mike/Documents/Research/Projects/Greenland Chl Imputation'
 
-model_version = 'Unet1'
-epoch = 2
+model_version = 'Unet2'
+epoch = 5
 resolution = 15
 
 start_year = 2019
@@ -130,7 +141,7 @@ end_year = 2019
 
 check_if_exists = False
 
-print(' - Loading the model checkpoint' )
+print(' - Loading the model checkpoint')
 model = load_model_checkpoint(project_folder, model_version, epoch, device)
 
 print(' - Reading in the domain grids' )
@@ -142,9 +153,6 @@ normalization_stats = read_normalization_stats(project_folder, resolution, model
 
 print(' - Generating the monthly grids')
 model.eval()
-month = 1
-days_counted = 0
-
 
 for year in range(start_year, end_year + 1):
 
@@ -154,11 +162,14 @@ for year in range(start_year, end_year + 1):
         days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
     eval_dataset = ChlDataset(project_folder=project_folder, resolution=resolution,
+                              model_version=model_version,
                               normalize_stats=normalization_stats, device=device,
                                start_year=year, end_year=year, training=False, printing=False)
     eval_loader = DataLoader(eval_dataset, batch_size=1, shuffle=False)
 
     chl_grids = []
+    days_counted = 0
+    month = 1
 
     for batch in eval_loader:
         x = batch["x"]  # [B, C, 184, 103]
@@ -208,21 +219,6 @@ for year in range(start_year, end_year + 1):
             month += 1
             days_counted = 0
             chl_grids = []
-
-
-
-
-
-
-#
-#     generate_file = run_file_check(project_folder, resolution, model_version, year_month, check_if_exists)
-#
-#     if generate_file:
-#
-#         var_grids = read_all_data_subset(project_folder, year_month, resolution)
-#
-#         generate_modeled_Chl_dataset(project_folder, model_version, model, year_month, var_grids)
-
 
 
 

@@ -12,11 +12,17 @@ def masked_huber_loss(pred, target, target_mask, ocean_mask, delta=1.0):
     """
 
     valid_mask = target_mask * ocean_mask
+    train_mask = (1-target_mask) * ocean_mask
 
-    loss = F.huber_loss(pred, target, reduction="none", delta=delta)
-    loss = loss * valid_mask
+    test_loss = F.huber_loss(pred, target, reduction="none", delta=delta)
+    test_loss = test_loss * valid_mask
+    test_loss = test_loss.sum() / valid_mask.sum().clamp_min(1.0)
 
-    return loss.sum() / valid_mask.sum().clamp_min(1.0)
+    train_loss = F.huber_loss(pred, target, reduction="none", delta=delta)
+    train_loss = train_loss * train_mask
+    train_loss = train_loss.sum() / train_mask.sum().clamp_min(1.0)
+
+    return train_loss, test_loss
 
 
 
@@ -31,7 +37,7 @@ def Unet_model_training_iteration(model, optimizer, batch):
 
     pred = model(x, ocean_mask)
 
-    loss = masked_huber_loss(
+    train_loss, test_loss = masked_huber_loss(
         pred=pred,
         target=y,
         target_mask=target_mask,
@@ -39,10 +45,10 @@ def Unet_model_training_iteration(model, optimizer, batch):
     )
 
     optimizer.zero_grad()
-    loss.backward()
+    test_loss.backward()
     optimizer.step()
 
-    return loss.item()
+    return train_loss.item(), test_loss.item()
 
 def Unet_model_evaluation_iteration(model, batch):
 
