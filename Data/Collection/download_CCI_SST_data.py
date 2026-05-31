@@ -10,7 +10,7 @@ import shutil
 data_path = '/Volumes/CoOL/Data_Repository/Global/Sea Surface Temperature/CCI'
 
 start_year = 1982
-end_year = 2016
+end_year = 1998
 
 for year in range(start_year, end_year + 1):
     if str(year) not in os.listdir(data_path):

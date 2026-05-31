@@ -118,7 +118,12 @@ home_folder = os.path.expanduser('~')
 
 project_folder = os.path.join(home_folder, 'Documents', 'Research', 'Projects', 'Greenland Chl Imputation')
 
-resolution = 15
+resolution = 1
+
+if resolution == 1:
+    data_dir = os.path.join('/Volumes', 'CoOL', 'Projects', 'Greenland Chl Imputation')
+else:
+    data_dir = project_folder
 
 start_year = 1975
 end_year = 2025
@@ -130,7 +135,7 @@ all_files_present = []
 for var_name in var_names:
     year_months = get_expected_year_months(var_name, start_year, end_year)
     all_year_months.append(year_months)
-    files_present = check_if_files_exist(project_folder, var_name, resolution, year_months)
+    files_present = check_if_files_exist(data_dir, var_name, resolution, year_months)
     all_files_present.append(files_present)
 
 year_months_total = []

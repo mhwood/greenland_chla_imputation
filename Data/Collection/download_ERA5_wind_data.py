@@ -8,8 +8,8 @@ tmp_folder = '/Users/mikewoods/Desktop/Tmp/'
 
 subset = 1
 
-start_year = 1980
-end_year = 2024
+start_year = 1990
+end_year = 1990
 
 # start_year = 2015
 # end_year = 2023

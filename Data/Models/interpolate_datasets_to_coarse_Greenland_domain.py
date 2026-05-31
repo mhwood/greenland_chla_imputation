@@ -826,10 +826,10 @@ else:
     X, Y, Depth = read_domain_from_nc(project_folder, resolution)
 
 
-make_SST = True
+make_SST = False
 make_sea_ice = False
 make_velocity = False
-make_wind = False
+make_wind = True
 make_Chl = False
 
 # C = plt.pcolormesh(X,Y,Bed)
@@ -837,7 +837,7 @@ make_Chl = False
 # plt.show()
 
 
-for year in range(1981,2003):
+for year in range(1990,1991):
 
     if make_SST and year>=2003:
         mur_tri_file = os.path.join(project_folder, 'Data', '15km Interpolated', 'MUR41_SST_triangulation.pkl')
@@ -922,7 +922,7 @@ for year in range(1981,2003):
                 if year<2003:
                     SST = read_month_CCI_SST_data_to_grid(data_folder, year, month, n_days, X, Y, cci_tri)
                     write_data_to_nc(project_folder, year, month, n_days, X, Y, Depth, 'SST', [SST], ['SST'])
-    
+
                     # C = plt.pcolormesh(X, Y, SST[0,:,:], cmap='turbo')
                     # plt.colorbar(C)
                     # plt.show()
@@ -952,18 +952,18 @@ for year in range(1981,2003):
         file_exists = check_file_existence(project_folder, year, month, 'Wind')
         if make_wind and not file_exists:
             print('    - Interpolating the wind velocity data')
-            try:
-                U_wind, V_wind = read_month_ERA5_wind_velocity_data_to_grid(data_folder, year, month, n_days, X, Y)
-                write_data_to_nc(project_folder, year, month, n_days, X, Y, Depth, 'Wind', [U_wind,V_wind], ['U_wind','V_wind'])
+            # try:
+            U_wind, V_wind = read_month_ERA5_wind_velocity_data_to_grid(data_folder, year, month, n_days, X, Y)
+            write_data_to_nc(project_folder, year, month, n_days, X, Y, Depth, 'Wind', [U_wind,V_wind], ['U_wind','V_wind'])
 
-                # C = plt.pcolormesh(X, Y, U_wind[0,:,:], cmap='turbo')
-                # plt.colorbar(C)
-                # plt.show()
-            except KeyboardInterrupt:
-                print(' - Keyboard Interrupt detected, stopping code execution')
-                break
-            except:
-                print('        - Error in wind data for this month')
+            # C = plt.pcolormesh(X, Y, U_wind[0,:,:], cmap='turbo')
+            # plt.colorbar(C)
+            # plt.show()
+            # except KeyboardInterrupt:
+            #     print(' - Keyboard Interrupt detected, stopping code execution')
+            #     break
+            # except:
+            #     print('        - Error in wind data for this month')
 
         #############################################################################################
         # Chl Data
