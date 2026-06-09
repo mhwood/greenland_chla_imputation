@@ -3,8 +3,8 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import netCDF4 as nc4
-import cartopy
-import cartopy.crs as ccrs
+# import cartopy
+# import cartopy.crs as ccrs
 from pyproj import Transformer
 import datetime
 from matplotlib.pyplot import GridSpec
@@ -42,7 +42,7 @@ def reproject_polygon(polygon_array,inputCRS,outputCRS,x_column=0,y_column=1,run
     return output_polygon
 
 def read_bedmachine_to_grid(data_folder):
-    bm_file = os.path.join(data_folder,'Greenland','Bathymetry','BedMachine','BedMachineGreenland-v5.nc')
+    bm_file = os.path.join(data_folder,'Greenland','Bathymetry','BedMachine','BedMachineGreenland-v6.nc')
     ds = nc4.Dataset(bm_file)
     bm_x = ds.variables['x'][:]
     bm_y = ds.variables['y'][:]
@@ -70,12 +70,11 @@ def read_bedmachine_to_grid(data_folder):
 
     return(bm_X, bm_Y, bed)
 
-
-def create_monthly_panels(project_folder,year,month,check_existing,bm_X, bm_Y, bed):
+def create_monthly_panels(project_folder,data_folder,resolution,year,month,check_existing,bm_X, bm_Y, bed):
 
     days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
-    ds = nc4.Dataset(os.path.join(project_folder, 'Data', '15km Interpolated', 'Chlorophyll',
+    ds = nc4.Dataset(os.path.join(data_folder, 'Data', f'{resolution}km Interpolated', 'Chlorophyll',
                                 str(year), f'Chlorophyll_{year}{month:02d}.nc'))
     X = ds.variables['X'][:,:]
     Y = ds.variables['Y'][:,:]
@@ -156,22 +155,24 @@ def compile_panels_to_movie(project_folder,year):
     os.chdir(pwd)
     os.system('rm -rf ' + panels_dir_tmp)
 
-project_folder = '/Users/mike/Documents/Research/Projects/Greenland Chl Imputation'
+
+data_folder = '/Volumes/ilulissat/Research/Projects/Greenland Chl Imputation'
 
 home_folder = os.path.expanduser('~')
+project_folder = home_folder+'/Documents/Research/Projects/Greenland Chl Imputation'
 bedmachine_folder = os.path.join(home_folder, 'Documents', 'Research', 'Data Repository')
 
-resolution = 15
+resolution = 1
 
 check_existing = True
 
-year = 2019
+year = 2001
 
 print(' - Reading in the bedmachine data')
 bm_X, bm_Y, bed = read_bedmachine_to_grid(bedmachine_folder)
 
-# for month in range(3,10):
-#     create_monthly_panels(project_folder, year, month, check_existing, bm_X, bm_Y, bed)
+for month in range(3,10):
+    create_monthly_panels(project_folder, data_folder, resolution, year, month, check_existing, bm_X, bm_Y, bed)
 
 print(' - Compiling panels into movie')
 compile_panels_to_movie(project_folder,year)

@@ -19,8 +19,9 @@ def generate_year_months(start_year, start_month, end_year, end_month):
 class ChlDatasetLazy(Dataset):
     def __init__(self, project_folder, resolution, model_version,
                  start_year, end_year,
-                 normalize_stats, device,
-                 time_window=3, hide_prob=0.3, epsilon=1e-6,
+                 normalize_stats, device, subset_size=None,
+                 time_window=3, hide_prob=0.3, epsilon=1e-6, data_folder = '',
+                 check_target_nans=False, 
                  fill_value=0.0, training=True, printing=True, verbose=False):
 
         self.project_folder = project_folder
@@ -36,6 +37,13 @@ class ChlDatasetLazy(Dataset):
         self.printing = printing
         self.device = device
         self.verbose = verbose
+        self.subset_size = subset_size
+        self.check_target_nans = check_target_nans
+
+        if data_folder=='':
+            self.data_folder = project_folder
+        else:
+            self.data_folder = data_folder
 
         # make the time arrays
         self.year_months = generate_year_months(start_year, 1, end_year, 12)
@@ -110,8 +118,9 @@ class ChlDatasetLazy(Dataset):
                     # var_grid= np.full((1, 184, 103), np.nan, dtype=np.float32)
                     var_grid = np.full((1, np.shape(self.ocean_mask)[0], np.shape(self.ocean_mask)[1]), np.nan, dtype=np.float32)
                 else:
-                    file_path = os.path.join(self.project_folder, 'Data', str(self.resolution)+'km Interpolated',
+                    file_path = os.path.join(self.data_folder, 'Data', str(self.resolution)+'km Interpolated',
                                              read_varname, str(year), read_varname +'_' + str(year) +'{:02d}'.format(month) +'.nc')
+                    print('    - Reading '+str(idx)+' from '+read_varname +'_' + str(year) +'{:02d}'.format(month) +'.nc')
                     ds = nc4.Dataset(file_path)
                     if vector:
                         if varname== 'Wind':
@@ -149,6 +158,16 @@ class ChlDatasetLazy(Dataset):
                     v_stacked = np.concatenate((v_stacked, v_grid[idx_in_month:idx_in_month+1,:,:]), axis=0)
                 else:
                     stacked = np.concatenate((stacked, var_grid[idx_in_month:idx_in_month+1,:,:]), axis=0)
+        
+        if self.check_target_nans:
+            if varname=='Chl':
+                target_subset = stacked[self.time_window,:,:]
+                target_subset = target_subset[self.ll_y_index:self.ll_y_index+self.subset_size, self.ll_x_index:self.ll_x_index+self.subset_size]
+                if np.all(np.isnan(target_subset)):
+                    self.skip_iter_due_to_chl_nans = True
+                    print('    - Skipping this iter because all target data is nan')
+                    # print(np.shape(target_subset))
+
 
         if self.printing and self.verbose:
             if vector:
@@ -215,10 +234,10 @@ class ChlDatasetLazy(Dataset):
         doy_sin = np.sin(2 * np.pi * doys_frac)
         doy_cos = np.cos(2 * np.pi * doys_frac)
 
-        self.DOY_sin = np.repeat(doy_sin[:, None, None], self.var_dict['SST'].shape[1], axis=1)
-        self.DOY_sin = np.repeat(self.DOY_sin, self.var_dict['SST'].shape[2], axis=2)
-        self.DOY_cos = np.repeat(doy_cos[:, None, None], self.var_dict['SST'].shape[1], axis=1)
-        self.DOY_cos = np.repeat(self.DOY_cos, self.var_dict['SST'].shape[2], axis=2)
+        self.DOY_sin = np.repeat(doy_sin[:, None, None], self.ocean_mask.shape[0], axis=1)
+        self.DOY_sin = np.repeat(self.DOY_sin, self.ocean_mask.shape[1], axis=2)
+        self.DOY_cos = np.repeat(doy_cos[:, None, None], self.ocean_mask.shape[0], axis=1)
+        self.DOY_cos = np.repeat(self.DOY_cos, self.ocean_mask.shape[1], axis=2)
 
         # add to the var grid
         self.var_dict['DOY_sin'] = self.DOY_sin
@@ -256,87 +275,123 @@ class ChlDatasetLazy(Dataset):
         if global_idx>=len(self)-self.time_window:
             global_idx = len(self)-self.time_window-1
 
+        self.skip_iter_due_to_chl_nans = False
+
+        if self.subset_size:
+            self.ll_x_index = np.random.randint(np.shape(self.ocean_mask)[-1]-self.subset_size)
+            self.ll_y_index = np.random.randint(np.shape(self.ocean_mask)[-2]-self.subset_size)
+
         center_local_idx = self.time_window
 
         ########################################################################################
         # read in the arrays from the files
         global_indices = np.arange(global_idx - self.time_window, global_idx + self.time_window + 1)
         for var_name in ['Chl','SST','Sea_Ice','Wind']:
-            if var_name=='Wind' or var_name=='Velocity':
-                vector = True
-            else:
-                vector = False
-            self.read_indexed_netcdf_stack(global_indices,var_name,vector=vector)
+            if not self.skip_iter_due_to_chl_nans:
+                if var_name=='Wind' or var_name=='Velocity':
+                    vector = True
+                else:
+                    vector = False
+                self.read_indexed_netcdf_stack(global_indices,var_name,vector=vector)
 
-        # recreate the DOY fields for this time step
-        self.generate_DOY_fields(global_indices)
+        if not self.skip_iter_due_to_chl_nans:
 
-        seaice_mask_out = (self.var_dict['Sea_Ice'][center_local_idx, :, :] < 0.15).astype(int) * self.ocean_mask
+            # recreate the DOY fields for this time step
+            self.generate_DOY_fields(global_indices)
 
-        ########################################################################################
-        # make output array with chl on the target time step (log chl) and mask of observed vs hidden chl
-        chl_log = np.log(self.var_dict['Chl'][center_local_idx, :, :] + self.epsilon)
-        observed_mask = np.isfinite(chl_log) & self.ocean_mask
+            seaice_mask_out = (self.var_dict['Sea_Ice'][center_local_idx, :, :] < 0.15).astype(int) * self.ocean_mask
 
-        chl_log = np.where(np.isfinite(chl_log), chl_log, np.nan)
-        chl_log = self.normalize(chl_log, 'Chl')
-        chl_log = np.nan_to_num(
-            chl_log,
-            nan=self.fill_value,
-            posinf=self.fill_value,
-            neginf=self.fill_value,
-        ).astype(np.float32)
+            ########################################################################################
+            # make output array with chl on the target time step (log chl) and mask of observed vs hidden chl
+            chl_log = np.log(self.var_dict['Chl'][center_local_idx, :, :] + self.epsilon)
+            observed_mask = np.isfinite(chl_log) & self.ocean_mask
 
-        chl_log_input, input_mask, target_mask = self.make_chl_training_input(chl_log, observed_mask)
+            chl_log = np.where(np.isfinite(chl_log), chl_log, np.nan)
+            chl_log = self.normalize(chl_log, 'Chl')
+            chl_log = np.nan_to_num(
+                chl_log,
+                nan=self.fill_value,
+                posinf=self.fill_value,
+                neginf=self.fill_value,
+            ).astype(np.float32)
 
-        ########################################################################################
-        # make big input array with all channels and time steps (big X)
-        channels = []
+            chl_log_input, input_mask, target_mask = self.make_chl_training_input(chl_log, observed_mask)
 
-        # temporal window
-        for local_idx in range(2*self.time_window + 1):
+            ########################################################################################
+            # make big input array with all channels and time steps (big X)
+            channels = []
 
-            seaice = self.var_dict['Sea_Ice'][local_idx, :, :]
-            seaice_mask = (seaice<0.15).astype(int)
-            seaice_mask = seaice_mask * self.ocean_mask
+            # temporal window
+            for local_idx in range(2*self.time_window + 1):
 
-            # predictor channels
-            for var_name in self.var_names:
-                input_arr = self.var_dict[var_name]
-                arr = input_arr[local_idx, :, :]
+                seaice = self.var_dict['Sea_Ice'][local_idx, :, :]
+                seaice_mask = (seaice<0.15).astype(int)
+                seaice_mask = seaice_mask * self.ocean_mask
 
-                arr = np.where(np.isfinite(arr), arr, np.nan)
-                if var_name not in ['DOY_cos', 'DOY_sin']:
-                    arr = self.normalize(arr, var_name)
-                arr = np.nan_to_num(
-                    arr,
-                    nan=self.fill_value,
-                    posinf=self.fill_value,
-                    neginf=self.fill_value,
-                ).astype(np.float32)
+                # predictor channels
+                for var_name in self.var_names:
+                    input_arr = self.var_dict[var_name]
+                    arr = input_arr[local_idx, :, :]
 
-                arr = arr * self.ocean_mask * seaice_mask
+                    arr = np.where(np.isfinite(arr), arr, np.nan)
+                    if var_name not in ['DOY_cos', 'DOY_sin']:
+                        arr = self.normalize(arr, var_name)
+                    arr = np.nan_to_num(
+                        arr,
+                        nan=self.fill_value,
+                        posinf=self.fill_value,
+                        neginf=self.fill_value,
+                    ).astype(np.float32)
 
-                if var_name == 'Chl' and local_idx == center_local_idx:
-                    arr = np.where(input_mask, arr, self.fill_value).astype(np.float32)
-                channels.append(arr)
+                    arr = arr * self.ocean_mask * seaice_mask
 
-        # ocean mask channel
-        channels.append(self.ocean_mask.astype(np.float32))
+                    if var_name == 'Chl' and local_idx == center_local_idx:
+                        arr = np.where(input_mask, arr, self.fill_value).astype(np.float32)
+                    channels.append(arr)
 
-        # put it all together
-        x = np.stack(channels, axis=0).astype(np.float32)
+            # ocean mask channel
+            channels.append(self.ocean_mask.astype(np.float32))
 
-        y = chl_log[None, :, :].astype(np.float32)
-        target_mask = target_mask[None, :, :].astype(np.float32)
-        ocean_mask = self.ocean_mask[None, :, :].astype(np.float32)
+            # put it all together
+            x = np.stack(channels, axis=0).astype(np.float32)
 
-        sample = {
-            "x": torch.from_numpy(x).to(self.device),                     # [C, 184, 103]
-            "target_log_chl": torch.from_numpy(y).to(self.device),        # [1, 184, 103]
-            "target_mask": torch.from_numpy(target_mask).to(self.device), # [1, 184, 103]
-            "ocean_mask": torch.from_numpy(ocean_mask).to(self.device),   # [1, 184, 103]
-            "seaice_mask": torch.from_numpy(seaice_mask_out[None, :, :].astype(np.float32)).to(self.device)   # [1, 184, 103]
-        }
+            y = chl_log[None, :, :].astype(np.float32)
+            target_mask = target_mask[None, :, :].astype(np.float32)
+            ocean_mask = self.ocean_mask[None, :, :].astype(np.float32)
+
+            x_out = torch.from_numpy(x).to(self.device)                     # [C, 184, 103]
+            target_log_chl_out = torch.from_numpy(y).to(self.device)        # [1, 184, 103]
+            target_mask_out = torch.from_numpy(target_mask).to(self.device) # [1, 184, 103]
+            ocean_mask_out=torch.from_numpy(ocean_mask).to(self.device)    # [1, 184, 103]
+            seaice_mask_out_out=torch.from_numpy(seaice_mask_out[None, :, :].astype(np.float32)).to(self.device)   # [1, 184, 103]
+
+            if self.subset_size:
+                x_out = x_out[:, self.ll_y_index:self.ll_y_index+self.subset_size, self.ll_x_index:self.ll_x_index+self.subset_size]
+                target_log_chl_out = target_log_chl_out[:, self.ll_y_index:self.ll_y_index+self.subset_size, self.ll_x_index:self.ll_x_index+self.subset_size]
+                target_mask_out = target_mask_out[:, self.ll_y_index:self.ll_y_index+self.subset_size, self.ll_x_index:self.ll_x_index+self.subset_size]
+                ocean_mask_out = ocean_mask_out[:, self.ll_y_index:self.ll_y_index+self.subset_size, self.ll_x_index:self.ll_x_index+self.subset_size]
+                seaice_mask_out_out = seaice_mask_out_out[:, self.ll_y_index:self.ll_y_index+self.subset_size, self.ll_x_index:self.ll_x_index+self.subset_size]
+                
+
+            sample = {
+                "x": x_out,                     # [C, 184, 103]
+                "target_log_chl": target_log_chl_out,        # [1, 184, 103]
+                "target_mask": target_mask_out, # [1, 184, 103]
+                "ocean_mask": ocean_mask_out,   # [1, 184, 103]
+                "seaice_mask": seaice_mask_out_out,
+                "process_iter": True   # [1, 184, 103]
+            }
+
+        else:
+            sample = {
+                "x": np.zeros((1,)),                     # [C, 184, 103]
+                "target_log_chl": np.zeros((1,)),        # [1, 184, 103]
+                "target_mask": np.zeros((1,)), # [1, 184, 103]
+                "ocean_mask": np.zeros((1,)),   # [1, 184, 103]
+                "seaice_mask": np.zeros((1,)),
+                "process_iter": False   # [1, 184, 103]
+            }
+
+        self.skip_iter_due_to_chl_nans = False
 
         return sample

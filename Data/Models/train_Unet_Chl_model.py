@@ -63,19 +63,26 @@ def read_normalization_stats(project_folder, resolution, model_version):
 
     return normalization_stats
 
-project_folder = '/Users/mike/Documents/Research/Projects/Greenland Chl Imputation'
+home_folder = os.path.expanduser('~')
+project_folder = home_folder+'/Documents/Research/Projects/Greenland Chl Imputation'
 
 model_version = 'Unet2'
-resolution = 15
+resolution = 1
+
+if resolution == 15:
+    data_folder = project_folder
+else:
+    # data_folder = '/Volumes/CoOL/Projects/Greenland Chl Imputation'
+    data_folder = '/Volumes/ilulissat/Research/Projects/Greenland Chl Imputation'
 
 output_summary = ''
 summary_path = os.path.join(project_folder, 'Data', str(resolution)+'km Model', model_version,
                                 f'{model_version}_training_summary.txt')
 
-start_year = 2019
+start_year = 2001
 start_month = 1
 
-end_year = 2019
+end_year = 2001
 end_month = 12
 
 # Step 1: Load in the model
@@ -96,10 +103,10 @@ normalization_stats = read_normalization_stats(project_folder, resolution, model
 print("Normalization stats:")#, normalization_stats)
 for field in normalization_stats:
     print('    - ',field,' Mean: ',normalization_stats[field]['mean'],' Std: ',normalization_stats[field]['std'])
-batch_size = 10
+batch_size = 1
 train_dataset = ChlDataset(project_folder=project_folder, resolution=resolution,
-                           model_version=model_version,
-                           normalize_stats=normalization_stats, device=device,
+                           model_version=model_version, time_window=int((days-1)/2), subset_size=128, check_target_nans=True,
+                           normalize_stats=normalization_stats, device=device, data_folder=data_folder,
                            start_year=start_year, end_year=end_year, training=True, printing=True)
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
@@ -120,7 +127,7 @@ print(f"     - ocean_mask: {first_batch['ocean_mask'].shape}")
 
 
 # Step 3: Train the model
-epochs = 5
+epochs = 1
 
 all_training_losses = []
 all_testing_losses = []

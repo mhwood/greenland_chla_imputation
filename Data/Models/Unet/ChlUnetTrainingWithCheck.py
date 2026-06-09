@@ -34,22 +34,30 @@ def Unet_model_training_iteration(model, optimizer, batch):
     y = batch["target_log_chl"]                 # [B, 1, 184, 103]
     target_mask = batch["target_mask"]          # [B, 1, 184, 103]
     ocean_mask = batch["ocean_mask"]            # [B, 1, 184, 103]
+    process_batch = batch["process_iter"]
 
-    pred = model(x, ocean_mask)
+    if process_batch:
 
-    train_loss, test_loss = masked_huber_loss(
-        pred=pred,
-        target=y,
-        target_mask=target_mask,
-        ocean_mask=ocean_mask,
-    )
+        pred = model(x, ocean_mask)
 
-    optimizer.zero_grad()
-    test_loss.backward()
-    optimizer.step()
+        train_loss, test_loss = masked_huber_loss(
+            pred=pred,
+            target=y,
+            target_mask=target_mask,
+            ocean_mask=ocean_mask,
+        )
 
-    train_loss_out = train_loss.item()
-    test_loss_out = test_loss.item()
+        optimizer.zero_grad()
+        test_loss.backward()
+        optimizer.step()
+
+        train_loss_out = train_loss.item()
+        test_loss_out = test_loss.item()
+    
+    else:
+
+        train_loss_out = 0.0
+        test_loss_out = 0.0
 
     return train_loss_out, test_loss_out
 

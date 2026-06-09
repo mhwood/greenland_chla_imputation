@@ -4,11 +4,20 @@ import os
 import shutil
 
 repo_folder = '/Volumes/CoOL/Data_Repository/Global/Wind/ERA5'
-repo_folder = '/Users/mikewoods/Desktop/Tmp/'
 tmp_folder = '/Users/mikewoods/Desktop/Tmp/'
+repo_folder = tmp_folder
 
-start_year = 2000
-end_year = 2000
+start_year = 1986
+end_year = 1990
+
+# start_year = 1991
+# end_year = 1999
+
+start_year = 2002
+end_year = 2010
+
+# start_year = 2011
+# end_year = 2020
 
 # start_year = 2015
 # end_year = 2023
@@ -23,7 +32,7 @@ for year in range(start_year, end_year + 1):
 
     year_files = os.listdir(os.path.join(repo_folder, str(year)))
 
-    for month in range(1, 2):
+    for month in range(1, 13):
 
         v_dst_file = 'v_10m_wind_'+str(year)+f"{month:02d}"+'.nc'
         if v_dst_file in year_files:
@@ -59,11 +68,7 @@ for year in range(start_year, end_year + 1):
             "data_format": "netcdf"
             }
 
-            client.retrieve(dataset, request, f"{tmp_folder}wind_{year}{month:02d}.zip")#.download()
-
-            # now, unzip the file
-            with zipfile.ZipFile(f"{tmp_folder}wind_{year}{month:02d}.zip", 'r') as zip_ref:
-                zip_ref.extractall(f"{tmp_folder}wind_{year}{month:02d}/")
+            client.retrieve(dataset, request, f"{tmp_folder}wind_{year}{month:02d}.nc")#.download()
 
             # # then, move the files to the repo folder
             # for file_name in os.listdir(f"{tmp_folder}wind_{year}{month:02d}/"):

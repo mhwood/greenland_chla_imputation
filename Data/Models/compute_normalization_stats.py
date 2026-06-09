@@ -39,6 +39,7 @@ def read_variable_stats(project_folder, resolution, year_months, var_name):
         file_path = os.path.join(project_folder, 'Data', str(resolution)+'km Interpolated',var_name,str(year),
                                  f'{var_name}_{year}{month:02d}.nc')
         if os.path.exists(file_path):
+            # print(file_path)
             with nc4.Dataset(file_path, 'r') as ds:
                 if var_name in ['Chlorophyll']:
                     var_data = ds.variables[read_name][:]
@@ -86,7 +87,10 @@ def read_variable_stats(project_folder, resolution, year_months, var_name):
     for year, month in year_months:
         file_path = os.path.join(project_folder, 'Data', str(resolution)+'km Interpolated',var_name,str(year),
                                  f'{var_name}_{year}{month:02d}.nc')
+        
         if os.path.exists(file_path):
+            # print(file_path)
+            print('     - Reading '+var_name+' in '+str(year)+'/'+str(month))
             with nc4.Dataset(file_path, 'r') as ds:
                 if var_name in ['Chlorophyll']:
                     var_data = ds.variables[read_name][:]
@@ -122,7 +126,7 @@ def read_variable_stats(project_folder, resolution, year_months, var_name):
     return(stats_dict)
 
 def compute_location_stats(project_folder, resolution):
-    output_file = os.path.join(project_folder, 'Data', '15km Interpolated',
+    output_file = os.path.join(project_folder, 'Data', str(resolution)+'km Interpolated',
                                'Greenland_domain_' + str(resolution) + 'km.nc')
 
     ds = nc4.Dataset(output_file)
@@ -192,15 +196,22 @@ def write_normalization_stats_to_file(project_folder, resolution, normalization_
         for var_name, stats in normalization_stats.items():
             f.write(f"{var_name}: mean={stats['mean']}, std={stats['std']}\n")
 
+home_folder = os.path.expanduser('~')
+project_folder = home_folder+'/Documents/Research/Projects/Greenland Chl Imputation'
 
-project_folder = '/Users/mike/Documents/Research/Projects/Greenland Chl Imputation'
+resolution = 1
 
-resolution = 15
+if resolution == 15:
+    data_folder = project_folder
+else:
+    # data_folder = '/Volumes/CoOL/Projects/Greenland Chl Imputation'
+    data_folder = '/Volumes/ilulissat/Research/Projects/Greenland Chl Imputation'
 
-start_year = 1981
+
+start_year = 2001
 start_month = 1
 
-end_year = 2020
+end_year = 2001
 end_month = 12
 
 year_months = generate_year_months(start_year, start_month, end_year, end_month)
@@ -211,7 +222,7 @@ normalization_stats = {}
 
 for var_name in var_names:
     print(' - Reading in the stats for '+var_name)
-    stats_dict = read_variable_stats(project_folder, resolution, year_months, var_name)
+    stats_dict = read_variable_stats(data_folder, resolution, year_months, var_name)
     if var_name in ['Chlorophyll','SST']:
         normalization_stats[var_name] = stats_dict[var_name]
         print('       - Mean:',stats_dict[var_name]['mean'],'- Std:',stats_dict[var_name]['std'])
